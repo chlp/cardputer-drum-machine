@@ -119,6 +119,8 @@ static bool  noteActive[256]          = {};   // key → tone playing
 static int8_t noteKeyChannel[256];            // key → speaker channel (−1 = none)
 static char  channelNoteKey[8]        = {};   // speaker channel → key (0 = free)
 static bool  sdSoundActive            = false;
+static bool  prevNoteActive[256]      = {};   // snapshot for partial piano redraw
+static bool  pianoNeedsFullRedraw     = true;
 
 static void noteOn(char key) {
     uint8_t k = (uint8_t)key;
@@ -415,7 +417,7 @@ static void playSoundboardBrowseSelection() {
 
 static void soundboardRefresh() {
     if (useSoundboardBrowseUI()) drawSoundboardBrowse(sbCurKey);
-    else drawPiano();
+    else { pianoNeedsFullRedraw = true; drawPiano(); }
 }
 
 static void drawBoardSplash() {
@@ -446,7 +448,6 @@ static void drawBoardSplash() {
 static void drawPiano() {
     auto &d = M5Cardputer.Display;
 
-    // White key height / black key height
     const int WH = 78;
     const int BH = 47;
     const int TW = SCREEN_W; // 240
@@ -457,38 +458,62 @@ static void drawPiano() {
     // Per-semitone-in-octave: index of white key to the LEFT of this black key (−1 = white key)
     static const int8_t bLeft[12]= {-1, 0,-1, 1,-1,-1, 3,-1, 4,-1, 5,-1};
 
-    // Clear area
-    d.fillRect(0, 0, TW, IMG_H, TFT_BLACK);
-
-    // Draw white keys
-    for (int i = 0; i < 36; i++) {
+    auto drawWhiteKey = [&](int i) {
         int oct = i / 12, sem = i % 12;
-        if (wIdx[sem] < 0) continue;
-        int wn = oct * 7 + wIdx[sem]; // global white key #
+        int wn = oct * 7 + wIdx[sem];
         int x0 = (wn * TW) / NW;
         int x1 = ((wn + 1) * TW) / NW;
-        char key = NOTE_KEY[i];
-        uint16_t col = noteActive[(uint8_t)key] ? TFT_YELLOW : TFT_WHITE;
+        uint16_t col = noteActive[(uint8_t)NOTE_KEY[i]] ? TFT_YELLOW : TFT_WHITE;
         d.fillRect(x0, 0, x1 - x0 - 1, WH, col);
         d.drawFastVLine(x0, 0, WH, TFT_BLACK);
-    }
-    d.drawFastVLine(TW - 1, 0, WH, TFT_BLACK);
-    d.drawFastHLine(0, WH, TW, TFT_BLACK);
+    };
 
-    // Draw black keys on top
-    for (int i = 0; i < 36; i++) {
+    auto drawBlackKey = [&](int i) {
         int oct = i / 12, sem = i % 12;
-        if (bLeft[sem] < 0) continue;
         int leftWn = oct * 7 + bLeft[sem];
-        int cx = ((leftWn + 1) * TW) / NW; // right edge of left white key
+        int cx = ((leftWn + 1) * TW) / NW;
         int bw = max(4, (TW / NW) * 6 / 10);
         int bx = cx - bw / 2;
-        char key = NOTE_KEY[i];
-        uint16_t col = noteActive[(uint8_t)key] ? TFT_YELLOW : 0x18C6; // dark gray
+        uint16_t col = noteActive[(uint8_t)NOTE_KEY[i]] ? TFT_YELLOW : 0x18C6;
         d.fillRect(bx, 0, bw, BH, col);
+    };
+
+    if (pianoNeedsFullRedraw) {
+        // Full redraw: clear the keys area and repaint everything
+        d.fillRect(0, 0, TW, WH + 1, TFT_BLACK);
+        for (int i = 0; i < 36; i++) { if (wIdx[i % 12] >= 0) drawWhiteKey(i); }
+        d.drawFastVLine(TW - 1, 0, WH, TFT_BLACK);
+        d.drawFastHLine(0, WH, TW, TFT_BLACK);
+        for (int i = 0; i < 36; i++) { if (bLeft[i % 12] >= 0) drawBlackKey(i); }
+        pianoNeedsFullRedraw = false;
+    } else {
+        // Partial redraw: only keys whose state changed
+        bool anyWhiteChanged = false;
+        for (int i = 0; i < 36; i++) {
+            uint8_t k = (uint8_t)NOTE_KEY[i];
+            if (noteActive[k] == prevNoteActive[k]) continue;
+            if (wIdx[i % 12] >= 0) {
+                drawWhiteKey(i);
+                anyWhiteChanged = true;
+            }
+        }
+        // After any white key repaint, repaint ALL black keys on top
+        // (white key fill may have overwritten part of an adjacent black key)
+        if (anyWhiteChanged) {
+            for (int i = 0; i < 36; i++) { if (bLeft[i % 12] >= 0) drawBlackKey(i); }
+        } else {
+            // Only black keys changed — repaint just those
+            for (int i = 0; i < 36; i++) {
+                uint8_t k = (uint8_t)NOTE_KEY[i];
+                if (noteActive[k] != prevNoteActive[k] && bLeft[i % 12] >= 0) drawBlackKey(i);
+            }
+        }
     }
 
-    // Note names of active keys
+    // Sync snapshot
+    for (int i = 0; i < 36; i++) prevNoteActive[(uint8_t)NOTE_KEY[i]] = noteActive[(uint8_t)NOTE_KEY[i]];
+
+    // Note names strip (small area, always refresh)
     String names = "";
     int cnt = 0;
     for (int i = 0; i < 36; i++) {
@@ -596,16 +621,15 @@ static void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
     }
 
     // Piano-only (no /boards panels): hold keys for polyphony; instant meme if file exists
+    bool pianoUpdated = false;
     for (char c : prevSbKeys) {
         bool stillHeld = false;
         for (char nc : curr) if (nc == c) {
             stillHeld = true;
             break;
         }
-        if (!stillHeld && noteActive[(uint8_t)c]) noteOff(c);
+        if (!stillHeld && noteActive[(uint8_t)c]) { noteOff(c); pianoUpdated = true; }
     }
-
-    bool pianoUpdated = false;
     for (char c : curr) {
         bool wasHeld = false;
         for (char pc : prevSbKeys) if (pc == c) {

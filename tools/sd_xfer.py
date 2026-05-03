@@ -25,6 +25,7 @@ except ImportError:
 
 PREFIX = "SD>"
 READ_TIMEOUT = 300
+CONNECT_TIMEOUT = 15   # seconds to wait for device to become ready
 CHUNK_SIZE = 4096
 
 
@@ -56,6 +57,47 @@ def read_line(ser: serial.Serial) -> str:
         if b == b"\n":
             return buf.decode("utf-8", errors="replace").rstrip("\r")
         buf.extend(b)
+
+
+def open_serial(port: str, baud: int) -> serial.Serial:
+    """Open serial port and wait for device to become ready.
+
+    ESP32-S3 may reset when the host opens the CDC port; we wait for it to
+    finish booting and respond to PING before returning the handle.
+    """
+    # Short timeout for the PING probe; switched to READ_TIMEOUT afterwards.
+    ser = serial.Serial(port, baud, timeout=2, dsrdtr=False, rtscts=False)
+    deadline = time.time() + CONNECT_TIMEOUT
+    while True:
+        time.sleep(0.5)
+        ser.reset_input_buffer()
+        ser.write(f"{PREFIX} PING\n".encode())
+        ser.flush()
+        try:
+            ln = read_line(ser)
+            # Skip startup banners until we see the PING reply.
+            probe_deadline = time.time() + 2
+            while time.time() < probe_deadline:
+                if ln == "+OK pong":
+                    ser.timeout = READ_TIMEOUT
+                    return ser
+                try:
+                    ln = read_line(ser)
+                except TimeoutError:
+                    break
+        except TimeoutError:
+            pass
+        if time.time() >= deadline:
+            ser.close()
+            print(
+                "\nDevice not responding after "
+                f"{CONNECT_TIMEOUT}s.\n"
+                "  • Is the firmware running? Try: pio device monitor\n"
+                "  • Is the SD card inserted?\n"
+                "  • Try: python3 tools/sd_xfer.py … ls /",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
 def cmd_line(ser: serial.Serial, line: str) -> None:
@@ -313,9 +355,9 @@ def main() -> None:
 
     args = ap.parse_args()
 
-    ser = serial.Serial(args.port, args.baud, timeout=READ_TIMEOUT)
-    time.sleep(0.15)
-    ser.reset_input_buffer()
+    print(f"Connecting to {args.port} …", end=" ", flush=True)
+    ser = open_serial(args.port, args.baud)
+    print("ready.")
 
     if args.action == "ls":
         do_ls(ser, args.path)
