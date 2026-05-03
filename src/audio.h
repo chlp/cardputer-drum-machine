@@ -8,5 +8,12 @@ extern AudioOutputM5Speaker *spk;
 extern AudioGeneratorMP3    *gen;
 extern AudioFileSourceSD    *src;
 
+// Set to true by the audio task when a stream ends naturally.
+// Cleared by the main loop after it handles auto-advance / state reset.
+extern volatile bool audioEndedNaturally;
+
+// Must be called once in setup(), after spk is initialised.
+void audioTaskInit();
+
 void stopAudio();
 bool startMp3(const char *path);

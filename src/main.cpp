@@ -91,6 +91,7 @@ void setup() {
 
     spk = new AudioOutputM5Speaker(&M5.Speaker, 0);
     spk->SetGain(1.0f);
+    audioTaskInit();
 
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
     sdReady = SD.begin(SD_CS, SPI, 10000000);
@@ -130,19 +131,17 @@ void loop() {
         else clearStatusBar();
     }
 
-    // Service MP3 stream
-    if (gen && gen->isRunning()) {
-        if (!gen->loop()) {
-            spk->flush();
-            gen->stop();
-            if (mode == MP3_PLAYER && playerState == PLAYER_PLAYING) {
-                playerAutoAdvance();
-            } else {
-                sdSoundActive = false;
-                playerState = PLAYER_STOPPED;
-                if (mode == SOUNDBOARD && useSoundboardBrowseUI())
-                    soundboardRefresh();
-            }
+    // Audio runs on core 0 (audioTaskFn). When a stream ends naturally the task
+    // sets this flag; the main loop handles the state transition here.
+    if (audioEndedNaturally) {
+        audioEndedNaturally = false;
+        if (mode == MP3_PLAYER && playerState == PLAYER_PLAYING) {
+            playerAutoAdvance();
+        } else {
+            sdSoundActive = false;
+            playerState = PLAYER_STOPPED;
+            if (mode == SOUNDBOARD && useSoundboardBrowseUI())
+                soundboardRefresh();
         }
     }
 
