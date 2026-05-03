@@ -18,7 +18,8 @@
 #define MP3_DIR     "/mp3"
 
 #define BOARD_TITLE_MAX 10
-#define BOARD_SPLASH_MS 650
+#define BOARD_SPLASH_MS 900
+#define PLAYER_HINT_MS  2200
 
 #define SCREEN_W 240
 #define SCREEN_H 135
@@ -34,6 +35,7 @@ static std::vector<String> boardPaths;
 static int                 soundboardBoardIdx = 0;
 static String              soundboardDir;       // активная панель: "/boards/<name>" или пусто
 static uint32_t            boardSplashUntilMs = 0;
+static uint32_t            playerHintUntilMs  = 0;
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -155,11 +157,8 @@ static bool isEscKey(const Keyboard_Class::KeysState &st) {
     return false;
 }
 
-static void drawStatusBar(const String &text, uint16_t color) {
+static void clearStatusBar() {
     M5Cardputer.Display.fillRect(0, STATUS_Y, SCREEN_W, SCREEN_H - STATUS_Y, TFT_BLACK);
-    M5Cardputer.Display.setTextColor(color, TFT_BLACK);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.drawString(text, 4, STATUS_Y + 6);
 }
 
 static uint8_t* readFileToBuffer(const char *path, size_t &outLen) {
@@ -268,10 +267,12 @@ static void drawBoardSplash() {
     String title = name + " BOARD";
     d.setTextSize(2);
     d.setTextColor(TFT_WHITE, TFT_BLACK);
-    d.drawCenterString(title, SCREEN_W / 2, SCREEN_H / 2 - 12);
+    d.drawCenterString(title, SCREEN_W / 2, SCREEN_H / 2 - 26);
     d.setTextSize(1);
     d.setTextColor(0x7BEF, TFT_BLACK);
-    d.drawCenterString("` = clear   TAB = next", SCREEN_W / 2, SCREEN_H / 2 + 14);
+    d.drawCenterString("` = clear/stop   TAB = next panel", SCREEN_W / 2, SCREEN_H / 2 + 4);
+    d.drawCenterString("or MP3 player", SCREEN_W / 2, SCREEN_H / 2 + 16);
+    d.drawCenterString("Keys: a-z  0-9  (meme or notes)", SCREEN_W / 2, SCREEN_H / 2 + 28);
 }
 
 // ── Piano display (36-note strip) ────────────────────────────────────────────
@@ -339,10 +340,7 @@ static void drawPiano() {
     d.fillRect(0, WH + 2, TW, IMG_H - WH - 2, TFT_BLACK);
     d.drawCenterString(cnt ? names : "~ play keys ~", TW / 2, WH + 6);
 
-    const char *tabHint = boardPaths.empty()
-        ? "`=clear  TAB=MP3 player"
-        : (soundboardBoardIdx + 1 >= (int)boardPaths.size() ? "`=clear  TAB=MP3 player" : "`=clear  TAB=next board");
-    drawStatusBar(tabHint, 0x7BEF);
+    clearStatusBar();
 }
 
 // ── Soundboard ────────────────────────────────────────────────────────────────
@@ -417,7 +415,7 @@ static void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
             }
             startMp3(audioPath);
             sdSoundActive = true;
-            drawStatusBar(String("[ ") + (char)toupper(c) + " ]  `=stop  TAB=player", TFT_YELLOW);
+            clearStatusBar();
         } else {
             // Note key: play polyphonically
             if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
@@ -486,8 +484,12 @@ static void playerDrawUI() {
         d.setTextColor(TFT_RED, TFT_BLACK); d.drawCenterString("SD card not found!", SCREEN_W / 2, 70); return;
     }
     if (playerEntries.empty()) {
-        d.setTextColor(TFT_YELLOW, TFT_BLACK); d.drawCenterString("Empty folder", SCREEN_W / 2, 60);
-        d.setTextColor(0x7BEF, TFT_BLACK); d.drawCenterString("h=back  TAB=boards", SCREEN_W / 2, 80); return;
+        d.setTextColor(TFT_YELLOW, TFT_BLACK);
+        d.drawCenterString("Empty folder", SCREEN_W / 2, 52);
+        d.setTextColor(0x7BEF, TFT_BLACK);
+        d.drawCenterString("h = up   TAB = soundboard", SCREEN_W / 2, 70);
+        clearStatusBar();
+        return;
     }
 
     const int ROW_H   = 16;
@@ -531,11 +533,16 @@ static void playerDrawUI() {
         d.fillRect(SCREEN_W - 3, thumbY, 3, thumbH, TFT_WHITE);
     }
 
-    String status = playerState == PLAYER_PLAYING ? "ENTER=pause  `=stop  h=back  l=fwd"
-                  : playerState == PLAYER_PAUSED   ? "ENTER=resume  `=stop  h=back  l=fwd"
-                  :                                  "ENTER=play  h=back  l=enter  TAB=board";
-    d.setTextColor(0x7BEF, TFT_BLACK);
-    d.drawString(status, 2, STATUS_Y + 5);
+    if (playerHintUntilMs && millis() < playerHintUntilMs) {
+        const char *l1 = playerState == PLAYER_PLAYING ? "j/k ,; nav  ENTER pause  h up  l in"
+                       : playerState == PLAYER_PAUSED  ? "j/k ,; nav  ENTER resume  h up  l in"
+                       :                                   "j/k ,; nav  ENTER play  h up  l in";
+        d.setTextColor(0x7BEF, TFT_BLACK);
+        d.drawString(l1, 2, STATUS_Y + 3);
+        d.drawString("TAB soundboard   ` stop", 2, STATUS_Y + 13);
+    } else {
+        clearStatusBar();
+    }
 }
 
 static void playerGoForward() {
@@ -604,6 +611,7 @@ static void playerHandleKeys(const Keyboard_Class::KeysState &st) {
 static void enterSoundboard(int boardIdx) {
     stopAudio();
     stopAllNotes();
+    playerHintUntilMs = 0;
     mode = SOUNDBOARD;
     sdSoundActive = false;
     if (boardPaths.empty()) {
@@ -624,6 +632,7 @@ static void enterMp3Player() {
     stopAudio();
     stopAllNotes();
     boardSplashUntilMs = 0;
+    playerHintUntilMs = millis() + PLAYER_HINT_MS;
     mode         = MP3_PLAYER;
     sdSoundActive = false;
     playerState  = PLAYER_STOPPED;
@@ -703,6 +712,10 @@ void loop() {
     if (mode == SOUNDBOARD && boardSplashUntilMs && millis() >= boardSplashUntilMs) {
         boardSplashUntilMs = 0;
         drawPiano();
+    }
+    if (mode == MP3_PLAYER && playerHintUntilMs && millis() >= playerHintUntilMs) {
+        playerHintUntilMs = 0;
+        playerDrawUI();
     }
 
     // Service MP3 stream
