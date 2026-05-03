@@ -5,6 +5,7 @@
 #include <AudioGeneratorMP3.h>
 #include <AudioFileSourceSD.h>
 #include "AudioOutputM5Speaker.h"
+#include "embedded_sounds.h"
 
 // SD card SPI pins for M5 Cardputer ADV
 #define SD_SCK  40
@@ -121,23 +122,53 @@ static void soundboardDrawIdle() {
     }
 }
 
+// Unique background color per key using a simple hash
+static uint16_t keyColor(char key) {
+    static const uint16_t palette[] = {
+        0xF800, 0xFA60, 0xFFE0, 0x87E0, 0x07E0, 0x07EF,
+        0x001F, 0x401F, 0x780F, 0xF81F, 0xFC0F, 0xFDA0,
+    };
+    int idx = ((key >= 'a' && key <= 'z') ? key - 'a' : (key - '0') + 26) % 12;
+    return palette[idx];
+}
+
 static void soundboardPlayKey(char key) {
     currentKey = key;
     M5Cardputer.Display.fillScreen(TFT_BLACK);
 
     bool hasImg = showImageForKey(key);
     if (!hasImg) {
-        // Fallback: large key label
-        M5Cardputer.Display.setTextSize(6);
-        M5Cardputer.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+        // Colorful fallback: background + large key letter
+        uint16_t bg = keyColor(key);
+        M5Cardputer.Display.fillRect(0, 0, SCREEN_W, IMG_H, bg);
+        M5Cardputer.Display.setTextSize(8);
+        M5Cardputer.Display.setTextColor(TFT_WHITE, bg);
         char label[4] = { (char)toupper(key), 0 };
-        M5Cardputer.Display.drawCenterString(label, SCREEN_W / 2, IMG_H / 2 - 20);
+        M5Cardputer.Display.drawCenterString(label, SCREEN_W / 2, IMG_H / 2 - 30);
         M5Cardputer.Display.setTextSize(1);
     }
 
     char audioPath[48];
     snprintf(audioPath, sizeof(audioPath), "%s/%c.mp3", SOUNDS_DIR, key);
     bool hasAudio = sdReady && SD.exists(audioPath) && startMp3(audioPath);
+
+    // Fallback to built-in synthesized sound
+    if (!hasAudio) {
+        BuiltinSound bs = getBuiltinSound(key);
+        if (bs.data && bs.len > 0) {
+            stopAudio();
+            // Copy to RAM — PROGMEM can't be DMA-read directly
+            int16_t* buf = (int16_t*)malloc(bs.len * 2);
+            if (buf) {
+                memcpy_P(buf, bs.data, bs.len * 2);
+                M5.Speaker.stop(0);
+                M5.Speaker.playRaw(buf, bs.len, BUILTIN_SAMPLE_RATE, false, 1, 0, true);
+                free(buf);
+                hasAudio = true;
+            }
+        }
+    }
+
     String status = String("[ ") + (char)toupper(key) + " ]";
     if (!hasAudio) status += "  (no audio)";
     status += "  ` = stop  TAB = player";
@@ -291,22 +322,57 @@ static void enterMp3Player() {
 
 // ── Arduino Entry Points ──────────────────────────────────────────────────────
 
+static void drawBootScreen() {
+    auto &d = M5Cardputer.Display;
+    d.fillScreen(TFT_BLACK);
+
+    // Gradient-like colored bars
+    d.fillRect(0,  0,  SCREEN_W, 27, 0xF800); // red
+    d.fillRect(0, 27,  SCREEN_W, 27, 0xFFE0); // yellow
+    d.fillRect(0, 54,  SCREEN_W, 27, 0x07E0); // green
+    d.fillRect(0, 81,  SCREEN_W, 27, 0x001F); // blue
+    d.fillRect(0, 108, SCREEN_W, 27, 0xF81F); // magenta
+
+    // Title overlay
+    d.setTextSize(2);
+    d.setTextColor(TFT_WHITE, TFT_BLACK);
+    d.fillRect(30, 48, 180, 38, TFT_BLACK);
+    d.drawCenterString("MEME BOARD", SCREEN_W / 2, 52);
+    d.setTextSize(1);
+    d.setTextColor(0xBDF7, TFT_BLACK);
+    d.drawCenterString("v1.0  |  TAB = MP3 Player", SCREEN_W / 2, 76);
+}
+
 void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
 
     M5Cardputer.Display.setRotation(1);
-    M5Cardputer.Display.setBrightness(160);
+    M5Cardputer.Display.setBrightness(200);
     M5Cardputer.Display.setTextSize(1);
 
+    // Boot screen first so user sees something immediately
+    drawBootScreen();
+
     M5.Speaker.begin();
-    M5.Speaker.setVolume(200); // 0-255
+    M5.Speaker.setVolume(200);
+
+    // Startup jingle: three ascending tones
+    M5.Speaker.tone(523, 120);  // C5
+    delay(130);
+    M5.Speaker.tone(659, 120);  // E5
+    delay(130);
+    M5.Speaker.tone(784, 200);  // G5
+    delay(220);
+    M5.Speaker.stop();
+
     spk = new AudioOutputM5Speaker(&M5.Speaker, 0);
     spk->SetGain(1.0f);
 
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
     sdReady = SD.begin(SD_CS, SPI, 25000000);
 
+    delay(800); // let user see the boot screen
     soundboardDrawIdle();
 }
 
