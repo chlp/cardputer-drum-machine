@@ -435,10 +435,9 @@ static void drawBoardSplash() {
     d.drawCenterString(title, SCREEN_W / 2, SCREEN_H / 2 - 26);
     d.setTextSize(1);
     d.setTextColor(0x7BEF, TFT_BLACK);
-    d.drawCenterString("` = clear/stop   TAB = next panel", SCREEN_W / 2, SCREEN_H / 2 + 4);
-    d.drawCenterString("or MP3 player", SCREEN_W / 2, SCREEN_H / 2 + 16);
-    d.drawCenterString(", / = prev/next  a-z 0-9 = pick", SCREEN_W / 2, SCREEN_H / 2 + 28);
-    d.drawCenterString("OK = play", SCREEN_W / 2, SCREEN_H / 2 + 40);
+    d.drawCenterString("TAB = boards / piano / MP3", SCREEN_W / 2, SCREEN_H / 2 + 4);
+    d.drawCenterString(", / = prev/next  a-z 0-9 = pick", SCREEN_W / 2, SCREEN_H / 2 + 16);
+    d.drawCenterString("OK = play   ` = clear/stop", SCREEN_W / 2, SCREEN_H / 2 + 28);
 }
 
 // ── Piano display (36-note strip) ────────────────────────────────────────────
@@ -769,12 +768,12 @@ static void playerDrawUI() {
     }
 
     if (playerHintUntilMs && millis() < playerHintUntilMs) {
-        const char *l1 = playerState == PLAYER_PLAYING ? "j/k ,; nav  ENTER pause  h up  l in"
-                       : playerState == PLAYER_PAUSED  ? "j/k ,; nav  ENTER resume  h up  l in"
-                       :                                   "j/k ,; nav  ENTER play  h up  l in";
+        const char *l1 = playerState == PLAYER_PLAYING ? ";. nav  , up  / in  ENTER pause  ` here"
+                       : playerState == PLAYER_PAUSED  ? ";. nav  , up  / in  ENTER resume  ` here"
+                       :                                   ";. nav  , up  / in  ENTER play  ` up";
         d.setTextColor(0x7BEF, TFT_BLACK);
         d.drawString(l1, 2, STATUS_Y + 3);
-        d.drawString("TAB soundboard   ` stop", 2, STATUS_Y + 13);
+        d.drawString("TAB soundboard/piano", 2, STATUS_Y + 13);
     } else {
         clearStatusBar();
     }
@@ -815,6 +814,25 @@ static void playerTogglePlay() {
     playerDrawUI();
 }
 
+static void playerShowCurrentFile() {
+    if (playerFile.isEmpty()) return;
+    int lastSlash = playerFile.lastIndexOf('/');
+    if (lastSlash < 0) return;
+    String dir  = playerFile.substring(0, lastSlash);
+    String name = playerFile.substring(lastSlash + 1);
+    if (dir != playerPath) {
+        playerPath = dir;
+        playerLoadDir(playerPath);
+    }
+    for (int i = 0; i < (int)playerEntries.size(); i++) {
+        if (!playerEntries[i].isDir && playerEntries[i].name == name) {
+            playerSelIdx = i;
+            break;
+        }
+    }
+    playerDrawUI();
+}
+
 static void playerAutoAdvance() {
     int next = playerSelIdx + 1;
     while (next < (int)playerEntries.size() && playerEntries[next].isDir) next++;
@@ -829,14 +847,22 @@ static void playerAutoAdvance() {
 }
 
 static void playerHandleKeys(const Keyboard_Class::KeysState &st) {
-    if (isEscKey(st)) { stopAudio(); playerState = PLAYER_STOPPED; playerDrawUI(); return; }
+    if (isEscKey(st)) {
+        if (playerState == PLAYER_PLAYING || playerState == PLAYER_PAUSED) {
+            playerShowCurrentFile();
+        } else {
+            playerGoBack();
+        }
+        return;
+    }
     if (st.enter) { playerTogglePlay(); return; }
     bool changed = false;
     for (char c : st.word) {
-        if      (c == 'j' || c == ',') { if (playerSelIdx < (int)playerEntries.size()-1) { playerSelIdx++; changed = true; } }
+        // up=;  down=.  left=,  right=/   (j/k/h/l kept as aliases)
+        if      (c == 'j' || c == '.') { if (playerSelIdx < (int)playerEntries.size()-1) { playerSelIdx++; changed = true; } }
         else if (c == 'k' || c == ';') { if (playerSelIdx > 0) { playerSelIdx--; changed = true; } }
-        else if (c == 'h') { playerGoBack(); return; }
-        else if (c == 'l') { playerGoForward(); return; }
+        else if (c == 'h' || c == ',') { playerGoBack(); return; }
+        else if (c == 'l' || c == '/') { playerGoForward(); return; }
     }
     if (changed) playerDrawUI();
 }
@@ -855,8 +881,13 @@ static void enterSoundboard(int boardIdx) {
     } else {
         soundboardBoardIdx = boardIdx;
         if (soundboardBoardIdx < 0) soundboardBoardIdx = 0;
-        if (soundboardBoardIdx >= (int)boardPaths.size()) soundboardBoardIdx = (int)boardPaths.size() - 1;
-        soundboardDir = boardPaths[soundboardBoardIdx];
+        // boardPaths.size() is used as sentinel for PIANO mode
+        if (soundboardBoardIdx > (int)boardPaths.size()) soundboardBoardIdx = (int)boardPaths.size();
+        if (soundboardBoardIdx == (int)boardPaths.size()) {
+            soundboardDir = "";
+        } else {
+            soundboardDir = boardPaths[soundboardBoardIdx];
+        }
     }
     prevSbKeys.clear();
     sbPrevComma = sbPrevSlash = false;
@@ -993,17 +1024,15 @@ void loop() {
         prevKeyPlus  = keyPlus;
         prevKeyMinus = keyMinus;
 
-        // TAB only on press: MP3 → доски по кругу (/boards/*, `meme` первый) → MP3
+        // TAB only on press: cycles boards[0..N-1] → PIANO → MP3 Player → boards[0] → …
         if (M5Cardputer.Keyboard.isPressed() && st.tab) {
             if (mode == MP3_PLAYER) {
                 enterSoundboard(0);
             } else {
-                if (boardPaths.empty()) enterMp3Player();
-                else {
-                    int next = soundboardBoardIdx + 1;
-                    if (next >= (int)boardPaths.size()) enterMp3Player();
-                    else enterSoundboard(next);
-                }
+                // Total soundboard slots: boardPaths.size() boards + 1 PIANO (idx = boardPaths.size())
+                int next = soundboardBoardIdx + 1;
+                if (next > (int)boardPaths.size()) enterMp3Player();
+                else enterSoundboard(next);
             }
             return;
         }
