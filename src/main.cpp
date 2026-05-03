@@ -37,6 +37,13 @@ static String              soundboardDir;       // активная панель
 static uint32_t            boardSplashUntilMs = 0;
 static uint32_t            playerHintUntilMs  = 0;
 
+// Browse UI when SD has /boards/*: , / = prev/next MP3 slot, letter/digit = pick, ENTER = play.
+static char     sbCurKey      = 'z';
+static bool     sbPrevComma   = false;
+static bool     sbPrevSlash   = false;
+
+static void drawPiano();
+
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
 static AudioOutputM5Speaker *spk = nullptr;
@@ -256,6 +263,98 @@ static bool resolveMemeMp3ForKey(char key, char *path, size_t pathCap) {
     return false;
 }
 
+static bool useSoundboardBrowseUI() {
+    return sdReady && !boardPaths.empty();
+}
+
+static void sbInitBrowseSelection() {
+    char path[64];
+    sbCurKey = NOTE_KEY[0];
+    for (int i = 0; i < 36; i++) {
+        if (resolveMemeMp3ForKey(NOTE_KEY[i], path, sizeof(path))) {
+            sbCurKey = NOTE_KEY[i];
+            return;
+        }
+    }
+}
+
+static void sbStepPlayable(int dir) {
+    char path[64];
+    int start = 0;
+    for (int i = 0; i < 36; i++) {
+        if (NOTE_KEY[i] == sbCurKey) {
+            start = i;
+            break;
+        }
+    }
+    for (int step = 1; step <= 36; step++) {
+        int i = (start + dir * step + 144) % 36;
+        if (resolveMemeMp3ForKey(NOTE_KEY[i], path, sizeof(path))) {
+            sbCurKey = NOTE_KEY[i];
+            return;
+        }
+    }
+    sbCurKey = NOTE_KEY[(start + dir + 36) % 36];
+}
+
+// Image or color tile for key (fills 0..IMG_H).
+static void drawMemeKeyPreviewGraphic(char key) {
+    auto &d = M5Cardputer.Display;
+    if (showImageForKey(key)) return;
+    static const uint16_t pal[] = {
+        0xF800,0xFA60,0xFFE0,0x87E0,0x07E0,0x07EF,
+        0x001F,0x401F,0x780F,0xF81F,0xFC0F,0xFDA0
+    };
+    int pidx = ((key >= 'a') ? key - 'a' : key - '0' + 26) % 12;
+    uint16_t bg = pal[pidx];
+    d.fillRect(0, 0, SCREEN_W, IMG_H, bg);
+    d.setTextSize(8);
+    d.setTextColor(TFT_WHITE, bg);
+    char lbl[2] = {(char)toupper(key), 0};
+    d.drawCenterString(lbl, SCREEN_W / 2, IMG_H / 2 - 30);
+    d.setTextSize(1);
+}
+
+static void drawSoundboardBrowse(char key) {
+    auto &d = M5Cardputer.Display;
+    d.fillScreen(TFT_BLACK);
+    drawMemeKeyPreviewGraphic(key);
+    d.fillRect(0, IMG_H - 18, SCREEN_W, 18, TFT_BLACK);
+    d.setTextSize(2);
+    d.setTextColor(TFT_CYAN, TFT_BLACK);
+    char line[12];
+    snprintf(line, sizeof(line), "[%c] OK=play", (char)toupper(key));
+    d.drawCenterString(line, SCREEN_W / 2, IMG_H - 16);
+    clearStatusBar();
+}
+
+static void playSoundboardBrowseSelection() {
+    char path[64];
+    char c = sbCurKey;
+    if (resolveMemeMp3ForKey(c, path, sizeof(path))) {
+        stopAllNotes();
+        M5Cardputer.Display.fillScreen(TFT_BLACK);
+        drawMemeKeyPreviewGraphic(c);
+        startMp3(path);
+        sdSoundActive = true;
+        clearStatusBar();
+    } else {
+        if (sdSoundActive) {
+            stopAudio();
+            sdSoundActive = false;
+        }
+        int ni = keyNoteIdx[(uint8_t)c];
+        if (ni >= 0)
+            M5.Speaker.tone(NOTE_FREQ[ni], 220, NOTE_CH_BASE, true);
+        drawSoundboardBrowse(c);
+    }
+}
+
+static void soundboardRefresh() {
+    if (useSoundboardBrowseUI()) drawSoundboardBrowse(sbCurKey);
+    else drawPiano();
+}
+
 static void drawBoardSplash() {
     auto &d = M5Cardputer.Display;
     d.fillScreen(TFT_BLACK);
@@ -272,7 +371,8 @@ static void drawBoardSplash() {
     d.setTextColor(0x7BEF, TFT_BLACK);
     d.drawCenterString("` = clear/stop   TAB = next panel", SCREEN_W / 2, SCREEN_H / 2 + 4);
     d.drawCenterString("or MP3 player", SCREEN_W / 2, SCREEN_H / 2 + 16);
-    d.drawCenterString("Keys: a-z  0-9  (meme or notes)", SCREEN_W / 2, SCREEN_H / 2 + 28);
+    d.drawCenterString(", / = prev/next  a-z 0-9 = pick", SCREEN_W / 2, SCREEN_H / 2 + 28);
+    d.drawCenterString("OK = play", SCREEN_W / 2, SCREEN_H / 2 + 40);
 }
 
 // ── Piano display (36-note strip) ────────────────────────────────────────────
@@ -351,74 +451,121 @@ static std::vector<char> prevSbKeys;
 static void soundboardDrawIdle() {
     stopAllNotes();
     sdSoundActive = false;
-    drawPiano(); // show empty piano as idle screen
+    soundboardRefresh();
 }
 
 static void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
-    // ESC: clear everything
     if (isEscKey(st)) {
         stopAudio();
         stopAllNotes();
         sdSoundActive = false;
         prevSbKeys.clear();
-        drawPiano();
+        sbPrevComma = sbPrevSlash = false;
+        soundboardRefresh();
         return;
     }
 
-    // Build current pressed alphanumeric keys
+    bool comma = false, slash = false;
+    for (char ch : st.word) {
+        if (ch == ',') comma = true;
+        if (ch == '/') slash = true;
+    }
+
+    const bool browse = useSoundboardBrowseUI();
+
+    if (browse) {
+        if (comma && !sbPrevComma) {
+            if (sdSoundActive) {
+                stopAudio();
+                sdSoundActive = false;
+            }
+            sbStepPlayable(-1);
+            drawSoundboardBrowse(sbCurKey);
+        }
+        if (slash && !sbPrevSlash) {
+            if (sdSoundActive) {
+                stopAudio();
+                sdSoundActive = false;
+            }
+            sbStepPlayable(1);
+            drawSoundboardBrowse(sbCurKey);
+        }
+        sbPrevComma = comma;
+        sbPrevSlash = slash;
+
+        if (M5Cardputer.Keyboard.isPressed() && st.enter) {
+            playSoundboardBrowseSelection();
+            std::vector<char> currEnter;
+            for (char c : st.word) {
+                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) currEnter.push_back(c);
+            }
+            prevSbKeys = currEnter;
+            return;
+        }
+    } else {
+        sbPrevComma = comma;
+        sbPrevSlash = slash;
+    }
+
     std::vector<char> curr;
     for (char c : st.word) {
         if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
             curr.push_back(c);
     }
 
-    // Detect releases
-    for (char c : prevSbKeys) {
-        bool stillHeld = false;
-        for (char nc : curr) if (nc == c) { stillHeld = true; break; }
-        if (!stillHeld) {
-            // Key released — stop note if it was a note (not an SD sound key)
-            if (noteActive[(uint8_t)c]) noteOff(c);
+    if (browse) {
+        for (char c : curr) {
+            bool wasHeld = false;
+            for (char pc : prevSbKeys) if (pc == c) {
+                wasHeld = true;
+                break;
+            }
+            if (wasHeld) continue;
+            sbCurKey = c;
+            if (sdSoundActive) {
+                stopAudio();
+                sdSoundActive = false;
+            }
+            drawSoundboardBrowse(sbCurKey);
         }
+        prevSbKeys = curr;
+        return;
     }
 
-    // Detect new presses
+    // Piano-only (no /boards panels): hold keys for polyphony; instant meme if file exists
+    for (char c : prevSbKeys) {
+        bool stillHeld = false;
+        for (char nc : curr) if (nc == c) {
+            stillHeld = true;
+            break;
+        }
+        if (!stillHeld && noteActive[(uint8_t)c]) noteOff(c);
+    }
+
     bool pianoUpdated = false;
     for (char c : curr) {
         bool wasHeld = false;
-        for (char pc : prevSbKeys) if (pc == c) { wasHeld = true; break; }
-        if (wasHeld) continue; // already handled
+        for (char pc : prevSbKeys) if (pc == c) {
+            wasHeld = true;
+            break;
+        }
+        if (wasHeld) continue;
 
-        // New keypress — мем с активной доски или fallback /boards/meme
         char audioPath[64];
         bool haveMeme = resolveMemeMp3ForKey(c, audioPath, sizeof(audioPath));
 
         if (haveMeme) {
-            // SD meme sound: stop notes + previous MP3, play new
             stopAllNotes();
             M5Cardputer.Display.fillScreen(TFT_BLACK);
-            bool hasImg = showImageForKey(c);
-            if (!hasImg) {
-                // Colored fallback
-                static const uint16_t pal[] = {
-                    0xF800,0xFA60,0xFFE0,0x87E0,0x07E0,0x07EF,
-                    0x001F,0x401F,0x780F,0xF81F,0xFC0F,0xFDA0
-                };
-                int pidx = ((c >= 'a') ? c - 'a' : c - '0' + 26) % 12;
-                uint16_t bg = pal[pidx];
-                M5Cardputer.Display.fillRect(0, 0, SCREEN_W, IMG_H, bg);
-                M5Cardputer.Display.setTextSize(8);
-                M5Cardputer.Display.setTextColor(TFT_WHITE, bg);
-                char lbl[2] = {(char)toupper(c), 0};
-                M5Cardputer.Display.drawCenterString(lbl, SCREEN_W / 2, IMG_H / 2 - 30);
-                M5Cardputer.Display.setTextSize(1);
-            }
+            drawMemeKeyPreviewGraphic(c);
             startMp3(audioPath);
             sdSoundActive = true;
             clearStatusBar();
         } else {
-            // Note key: play polyphonically
-            if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
+            if (sdSoundActive) {
+                stopAudio();
+                sdSoundActive = false;
+            }
             noteOn(c);
             pianoUpdated = true;
         }
@@ -624,6 +771,8 @@ static void enterSoundboard(int boardIdx) {
         soundboardDir = boardPaths[soundboardBoardIdx];
     }
     prevSbKeys.clear();
+    sbPrevComma = sbPrevSlash = false;
+    sbInitBrowseSelection();
     boardSplashUntilMs = millis() + BOARD_SPLASH_MS;
     drawBoardSplash();
 }
@@ -703,7 +852,8 @@ void setup() {
     for (int i = 0; i < 36; i++) keyNoteIdx[(uint8_t)NOTE_KEY[i]] = i;
 
     delay(800);
-    drawPiano();
+    if (!boardPaths.empty()) sbInitBrowseSelection();
+    soundboardRefresh();
 }
 
 void loop() {
@@ -711,7 +861,7 @@ void loop() {
 
     if (mode == SOUNDBOARD && boardSplashUntilMs && millis() >= boardSplashUntilMs) {
         boardSplashUntilMs = 0;
-        drawPiano();
+        soundboardRefresh();
     }
     if (mode == MP3_PLAYER && playerHintUntilMs && millis() >= playerHintUntilMs) {
         playerHintUntilMs = 0;
@@ -728,6 +878,8 @@ void loop() {
             } else {
                 sdSoundActive = false;
                 playerState = PLAYER_STOPPED;
+                if (mode == SOUNDBOARD && useSoundboardBrowseUI())
+                    drawSoundboardBrowse(sbCurKey);
             }
         }
     }
