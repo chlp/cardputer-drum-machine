@@ -49,6 +49,17 @@ Put any MP3 files here:
 ...
 ```
 
+### Copying files over USB (no card reader)
+
+The firmware exposes the SD card over USB serial (`SD> …` commands) — no need to remove the card. The repo includes `sd_card_content/` with all required files. To mirror it to the card in one step:
+
+```bash
+pip install pyserial          # one-time
+./tools/sync_sd_card_content.sh
+```
+
+This deletes extra files on the card and uploads anything missing or changed. See **[docs/SD_SERIAL_TRANSFER.md](docs/SD_SERIAL_TRANSFER.md)** for the full protocol and individual file commands.
+
 ---
 
 ## Building & Flashing
@@ -57,17 +68,36 @@ Put any MP3 files here:
 - [PlatformIO](https://platformio.org/) (VS Code extension or CLI)
 - USB-C cable connected to M5 Cardputer
 
-### Steps
+### First-time: build, flash, and SD card
+
+From the repository root:
+
 ```bash
-# Install dependencies + build
+# Build firmware
 pio run
 
-# Flash to device
-pio run -t upload
-pio run -t upload --upload-port /dev/tty.usbmodem201101
+# List serial ports (pick the Cardputer / CP210x / USB JTAG port)
+pio device list
 
-# Open serial monitor
+# Flash (auto-detect port when only one device is connected)
+pio run -t upload
+
+# Or specify the port explicitly (examples; yours will differ)
+pio run -t upload --upload-port /dev/tty.usbmodem1101    # macOS / Linux
+pio run -t upload --upload-port COM5                     # Windows
+```
+
+After flashing, prepare the SD card while the Cardputer is still connected:
+
+```bash
+./tools/sync_sd_card_content.sh
+```
+
+Optional serial monitor:
+
+```bash
 pio device monitor
+pio device monitor --port /dev/tty.usbmodem1101
 ```
 
 ---

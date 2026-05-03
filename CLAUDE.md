@@ -40,6 +40,23 @@ Firmware for **M5 Cardputer ADV** (ESP32-S3): dual-mode device.
 ```
 Bundled content: `sd_card_content/` — copy the whole tree to the SD card.
 
+## SD Card — File Transfer over USB Serial
+While the Cardputer is connected via USB, the firmware accepts `SD> …` text commands on the serial port (115200 baud) to list, read, delete, and upload files **without removing the SD card**. Full protocol: `docs/SD_SERIAL_TRANSFER.md`.
+
+Python helper (`tools/sd_xfer.py`, requires `pyserial`):
+```bash
+# Mirror sd_card_content/ to the card — delete extra files, upload missing/changed
+./tools/sync_sd_card_content.sh          # port: /dev/tty.usbmodem201101 by default
+./tools/sync_sd_card_content.sh -p <port>
+
+# Individual operations
+python3 tools/sd_xfer.py -p /dev/tty.usbmodem201101 sync          # same as script above
+python3 tools/sd_xfer.py -p /dev/tty.usbmodem201101 ls /boards/meme
+python3 tools/sd_xfer.py -p /dev/tty.usbmodem201101 put local.mp3 /boards/meme/a.mp3
+python3 tools/sd_xfer.py -p /dev/tty.usbmodem201101 rm /mp3/old.mp3
+```
+Close `pio device monitor` before running the helper (only one program can hold the port).
+
 ## Soundboard — Note Mapping
 Keyboard rows bottom → top map to low → high notes:
 
@@ -77,6 +94,7 @@ Keyboard rows bottom → top map to low → high notes:
 src/
   main.cpp               ← all firmware logic
   AudioOutputM5Speaker.h ← ESP8266Audio → M5Unified bridge
+  sd_serial_xfer.cpp     ← USB serial SD protocol (SD> commands)
 lib/
   ESP8266AudioLocal/     ← ESP8266Audio without I2S output files
 sd_card_content/
@@ -84,6 +102,11 @@ sd_card_content/
   mp3/
     classic/             ← 10 classical pieces
     background/          ← 10 background tracks
+tools/
+  sd_xfer.py             ← Python helper: ls/get/put/rm/mkdir/sync over serial
+  sync_sd_card_content.sh ← one-command mirror of sd_card_content/ to SD card
+docs/
+  SD_SERIAL_TRANSFER.md  ← full serial protocol reference
 platformio.ini
 ```
 

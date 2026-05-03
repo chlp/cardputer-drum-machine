@@ -6,6 +6,7 @@
 #include <AudioGeneratorMP3.h>
 #include <AudioFileSourceSD.h>
 #include "AudioOutputM5Speaker.h"
+#include "sd_serial_xfer.h"
 
 // SD card SPI pins for M5 Cardputer ADV
 #define SD_SCK  40
@@ -813,6 +814,7 @@ static void drawBootScreen() {
 // ── Arduino Entry Points ──────────────────────────────────────────────────────
 
 void setup() {
+    Serial.setRxBufferSize(16384);
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(1);
@@ -823,12 +825,6 @@ void setup() {
 
     M5.Speaker.begin();
     M5.Speaker.setVolume(200);
-
-    // Startup jingle
-    M5.Speaker.tone(523, 120); delay(130);
-    M5.Speaker.tone(659, 120); delay(130);
-    M5.Speaker.tone(784, 200); delay(220);
-    M5.Speaker.stop();
 
     spk = new AudioOutputM5Speaker(&M5.Speaker, 0);
     spk->SetGain(1.0f);
@@ -854,10 +850,13 @@ void setup() {
     delay(800);
     if (!boardPaths.empty()) sbInitBrowseSelection();
     soundboardRefresh();
+
+    sdSerialXferSetup();
 }
 
 void loop() {
     M5Cardputer.update();
+    sdSerialXferLoop();
 
     if (mode == SOUNDBOARD && boardSplashUntilMs && millis() >= boardSplashUntilMs) {
         boardSplashUntilMs = 0;
