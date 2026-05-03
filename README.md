@@ -5,20 +5,34 @@ Firmware for [M5 Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer) that
 ## Features
 
 ### Mode 1 — Soundboard
-- Press any key (a–z, 0–9) to instantly play the assigned meme sound
-- The previous sound stops immediately when a new key is pressed
-- A full-screen image associated with the sound is displayed
-- **ESC** (`` ` `` key) stops playback and returns to idle screen
+Two sub-modes, selected automatically based on SD card state:
+
+**Browse UI** (SD card with `/boards/` present):
+- `,` / `/` step through sounds; the current sound's image fills the screen
+- Any letter/digit key (`a`–`z`, `0`–`9`) jumps directly to that sound
+- **ENTER** plays the selected sound
+- **ESC** (`` ` `` key) stops playback
+
+**Piano** (no SD boards, or PIANO board active):
+- Hold any key to play the corresponding note (polyphonic, up to 7 voices)
+- If a key has an `.mp3` file on the active board, the meme sound plays instead of a tone
+- Pressed keys are highlighted yellow on the on-screen piano
+- **ESC** stops all notes
 
 ### Mode 2 — MP3 Player
-- Scrollable list of all `.mp3` files from the `/mp3` folder on the SD card
-- Navigate with `j`/`k` (or `,`/`;`)
-- Press **ENTER** to play the selected track
+- Scrollable file browser starting at the `/mp3` folder on the SD card; arbitrary sub-folder nesting is supported
+- Navigate with `j`/`.` (next) and `k`/`;` (previous)
+- `l`/`/` to enter a folder; `h`/`,` to go up
+- Press **ENTER** to play the selected track (or enter a folder)
 - Tracks auto-advance when finished
-- **ESC** stops playback
+- **ESC** while playing/paused scrolls the list to the current file; **ESC** while stopped goes up one level
 
 ### Switching Modes
-Press **TAB** to cycle: **MP3 Player** → each **soundboard panel** (subfolder of `/boards/` on the SD card, `meme` first) → back to MP3. When you switch to a panel, its folder name appears briefly (e.g. `MEME BOARD`).
+Press **TAB** to cycle through all modes in order:
+
+**Soundboard panels** (one per subfolder of `/boards/`, `meme` first) → **PIANO** (pure synthesiser, no SD sounds) → **MP3 Player** → back to the first soundboard panel.
+
+When you switch to a panel, its name appears briefly on screen (e.g. `MEME BOARD`, `PIANO BOARD`).
 
 ---
 
@@ -126,14 +140,20 @@ Without SD card, built-in synthesized sounds play instead.
 
 ## Controls Reference
 
-| Key | Soundboard | MP3 Player |
-|-----|-----------|------------|
-| `a`–`z`, `0`–`9` | Play meme sound | — |
-| TAB | → MP3 Player | → Soundboard |
-| ESC (`` ` ``) | Stop sound | Stop playback |
-| ENTER | — | Play selected track |
-| `j` or `,` | — | Next track |
-| `k` or `;` | — | Previous track |
+| Key | Soundboard (Browse) | Soundboard (Piano) | MP3 Player |
+|-----|--------------------|--------------------|------------|
+| `a`–`z`, `0`–`9` | Jump to & play sound | Play note / meme | — |
+| `,` | Previous sound | — | Go up one level |
+| `/` | Next sound | — | Enter folder |
+| ENTER | Play selected sound | — | Play / pause / enter folder |
+| `j` or `.` | — | — | Next item |
+| `k` or `;` | — | — | Previous item |
+| `h` | — | — | Go up one level |
+| `l` | — | — | Enter folder |
+| TAB | → next panel / PIANO / MP3 | → next panel / PIANO / MP3 | → first soundboard panel (meme) |
+| `+` or `=` | Volume up | Volume up | Volume up |
+| `-` | Volume down | Volume down | Volume down |
+| ESC (`` ` ``) | Stop sound | Stop all notes | If playing/paused: show current file; if stopped: go up |
 
 ---
 

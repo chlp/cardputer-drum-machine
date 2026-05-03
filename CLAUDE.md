@@ -2,7 +2,11 @@
 
 ## Project Overview
 Firmware for **M5 Cardputer ADV** (ESP32-S3): dual-mode device.
-- **Mode 1 — Soundboard**: polyphonic musical keyboard (36 notes, C3–B5). Panels are first-level subfolders under `/boards/`; default memes live in `/boards/meme/`. If the active panel has no `.mp3` for a key, sound and image are taken from `/boards/meme/`. TAB cycles MP3 ↔ boards (`meme` first).
+- **Mode 1 — Soundboard**: two sub-modes depending on SD state:
+  - **Browse UI** (SD ready, boards found): `,`/`/` step through sounds, ENTER plays, any letter/digit key jumps directly to that sound. Image fills the screen; colour tile if no image.
+  - **Piano** (no SD boards, or PIANO board selected): polyphonic keyboard (36 notes, C3–B5); hold keys for chords. If a key has an `.mp3` on the active board or in `/boards/meme/`, the meme sound plays instead of a tone. Pressed keys highlighted yellow.
+  - Panels are first-level subfolders under `/boards/`; default memes live in `/boards/meme/`. Missing file on active panel → fallback from `meme/`.
+  - TAB cycles: boards[0] (meme) → boards[1] → … → boards[N-1] → **PIANO** → MP3 Player → boards[0] → …
 - **Mode 2 — MP3 Player**: file manager with navigation over SD card folders.
 
 ## Hardware
@@ -75,19 +79,22 @@ Keyboard rows bottom → top map to low → high notes:
 ## MP3 Player — Controls
 | Key | Action |
 |-----|--------|
-| `j` / `,` | Next item |
+| `j` / `.` | Next item |
 | `k` / `;` | Previous item |
-| `l` or ENTER on folder | Enter folder |
-| `h` | Go up one level |
+| `l` / `/` | Enter folder |
+| `h` / `,` | Go up one level |
 | ENTER on file | Play / pause / resume |
-| `` ` `` (ESC) | Stop |
-| TAB | Next soundboard panel or MP3 Player (cycle) |
+| ENTER on folder | Enter folder |
+| `` ` `` (ESC) | If playing/paused: scroll list to current file; if stopped: go up one level |
+| TAB | → boards[0] (meme) |
 
 ## Universal Controls
 | Key | Soundboard | MP3 Player |
 |-----|------------|------------|
-| TAB | → next panel or MP3 Player | → first panel in `/boards/` (usually `meme`) |
-| `` ` `` | Stop + reset notes | Stop playback |
+| TAB | → next panel → PIANO → MP3 Player (cycle) | → boards[0] (meme) |
+| `+` / `=` | Volume up | Volume up |
+| `-` | Volume down | Volume down |
+| `` ` `` | Stop + reset notes | Navigate to current file / go up |
 
 ## Source Layout
 ```
@@ -120,7 +127,7 @@ platformio.ini
 ## Critical Implementation Notes
 - **IDF4/IDF5**: `driver/i2s_std.h` is not available on IDF4 → I2S output files removed from ESP8266Audio
 - **Images**: `drawJpgFile(SD, path)` does not work (no `DataWrapperT<fs::SDFS>`). Workaround: read the file into heap with `malloc`, then `drawJpg(buf, len)`
-- **Audio**: `gen->loop()` is called every frame (non-blocking). Each new sound → `delete gen/src`, recreate
+- **Audio**: runs on a dedicated FreeRTOS task pinned to core 0 (`audioTaskFn`), priority 2, guarded by a mutex. The main loop is never blocked by decoding. `startMp3` / `stopAudio` take the mutex, swap `gen`/`src`, and release. `audioEndedNaturally` flag is set by the task; handled in `loop()`.
 - **Polyphony**: M5.Speaker channel 0 is used by AudioOutputM5Speaker (MP3). Notes use channels 1–7
 - **`M5.Speaker.tone(freq, 0, ch, false)`**: duration=0 → infinite, stop_current=false → does not cut other channels
 - **Keyboard**: press and release both go through `isChange()` (not only `isPressed()`). MP3 Player only needs `isPressed()`
