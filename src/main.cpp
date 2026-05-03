@@ -963,7 +963,7 @@ void loop() {
         // + / - volume (global, both modes, fires on fresh press)
         bool keyPlus = false, keyMinus = false;
         for (char c : st.word) {
-            if (c == '+') keyPlus  = true;
+            if (c == '+' || c == '=') keyPlus  = true;
             if (c == '-') keyMinus = true;
         }
         if (keyPlus  && !prevKeyPlus)  applyVolume( VOL_STEP);
