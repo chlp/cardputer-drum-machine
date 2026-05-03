@@ -22,6 +22,10 @@
 #define BOARD_SPLASH_MS 900
 #define PLAYER_HINT_MS  2200
 
+#define SETTINGS_PATH   "/settings.cfg"
+#define VOL_STEP        16    // ~16 steps from 0 to 255
+#define VOL_DISPLAY_MS  1500
+
 #define SCREEN_W 240
 #define SCREEN_H 135
 #define IMG_H    110
@@ -37,6 +41,11 @@ static int                 soundboardBoardIdx = 0;
 static String              soundboardDir;       // активная панель: "/boards/<name>" или пусто
 static uint32_t            boardSplashUntilMs = 0;
 static uint32_t            playerHintUntilMs  = 0;
+
+static uint8_t  masterVolume         = 200;
+static uint32_t volumeDisplayUntilMs = 0;
+static bool     prevKeyPlus          = false;
+static bool     prevKeyMinus         = false;
 
 // Browse UI when SD has /boards/*: , / = prev/next MP3 slot, letter/digit = pick, ENTER = play.
 static char     sbCurKey      = 'z';
@@ -167,6 +176,60 @@ static bool isEscKey(const Keyboard_Class::KeysState &st) {
 
 static void clearStatusBar() {
     M5Cardputer.Display.fillRect(0, STATUS_Y, SCREEN_W, SCREEN_H - STATUS_Y, TFT_BLACK);
+}
+
+// ── Volume & Settings ─────────────────────────────────────────────────────────
+
+static void drawVolumeOverlay() {
+    auto &d = M5Cardputer.Display;
+    d.fillRect(0, STATUS_Y, SCREEN_W, SCREEN_H - STATUS_Y, TFT_BLACK);
+    uint8_t level = masterVolume / VOL_STEP; // 0..15
+    char buf[20];
+    snprintf(buf, sizeof(buf), "VOL  %2d / 15", (int)level);
+    d.setTextSize(1);
+    d.setTextColor(TFT_YELLOW, TFT_BLACK);
+    d.drawCenterString(buf, SCREEN_W / 2, STATUS_Y + 2);
+    const int bx = 10, by = STATUS_Y + 13, bw = SCREEN_W - 20, bh = 8;
+    int filled = bw * masterVolume / 255;
+    d.fillRect(bx, by, bw, bh, 0x2104);
+    d.fillRect(bx, by, filled, bh, TFT_YELLOW);
+}
+
+static void saveSettings() {
+    if (!sdReady) return;
+    File f = SD.open(SETTINGS_PATH, FILE_WRITE);
+    if (!f) return;
+    f.printf("volume=%d\n", (int)masterVolume);
+    f.printf("panel=%d\n",  soundboardBoardIdx);
+    f.close();
+}
+
+static void loadSettings() {
+    if (!sdReady) return;
+    File f = SD.open(SETTINGS_PATH, FILE_READ);
+    if (!f) return;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        int eq = line.indexOf('=');
+        if (eq < 0) continue;
+        String key = line.substring(0, eq);
+        int    val = line.substring(eq + 1).toInt();
+        if      (key == "volume") masterVolume       = (uint8_t)constrain(val, 0, 255);
+        else if (key == "panel")  soundboardBoardIdx = constrain(val, 0, 999);
+    }
+    f.close();
+}
+
+static void applyVolume(int delta) {
+    int v = (int)masterVolume + delta;
+    if (v < 0)   v = 0;
+    if (v > 255) v = 255;
+    masterVolume = (uint8_t)v;
+    M5.Speaker.setVolume(masterVolume);
+    volumeDisplayUntilMs = millis() + VOL_DISPLAY_MS;
+    drawVolumeOverlay();
+    saveSettings();
 }
 
 static uint8_t* readFileToBuffer(const char *path, size_t &outLen) {
@@ -776,6 +839,7 @@ static void enterSoundboard(int boardIdx) {
     sbInitBrowseSelection();
     boardSplashUntilMs = millis() + BOARD_SPLASH_MS;
     drawBoardSplash();
+    saveSettings();
 }
 
 static void enterMp3Player() {
@@ -824,7 +888,6 @@ void setup() {
     drawBootScreen();
 
     M5.Speaker.begin();
-    M5.Speaker.setVolume(200);
 
     spk = new AudioOutputM5Speaker(&M5.Speaker, 0);
     spk->SetGain(1.0f);
@@ -832,9 +895,14 @@ void setup() {
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
     sdReady = SD.begin(SD_CS, SPI, 25000000);
     scanSoundboardDirs();
+
+    // Restore saved settings (volume + last panel)
+    loadSettings();
+    M5.Speaker.setVolume(masterVolume);
+
     if (!boardPaths.empty()) {
-        soundboardBoardIdx = 0;
-        soundboardDir      = boardPaths[0];
+        if (soundboardBoardIdx >= (int)boardPaths.size()) soundboardBoardIdx = 0;
+        soundboardDir = boardPaths[soundboardBoardIdx];
     } else {
         soundboardBoardIdx = 0;
         soundboardDir      = "";
@@ -866,6 +934,11 @@ void loop() {
         playerHintUntilMs = 0;
         playerDrawUI();
     }
+    if (volumeDisplayUntilMs && millis() >= volumeDisplayUntilMs) {
+        volumeDisplayUntilMs = 0;
+        if (mode == MP3_PLAYER) playerDrawUI();
+        else clearStatusBar();
+    }
 
     // Service MP3 stream
     if (gen && gen->isRunning()) {
@@ -886,6 +959,17 @@ void loop() {
     // Keyboard
     if (M5Cardputer.Keyboard.isChange()) {
         Keyboard_Class::KeysState st = M5Cardputer.Keyboard.keysState();
+
+        // + / - volume (global, both modes, fires on fresh press)
+        bool keyPlus = false, keyMinus = false;
+        for (char c : st.word) {
+            if (c == '+') keyPlus  = true;
+            if (c == '-') keyMinus = true;
+        }
+        if (keyPlus  && !prevKeyPlus)  applyVolume( VOL_STEP);
+        if (keyMinus && !prevKeyMinus) applyVolume(-VOL_STEP);
+        prevKeyPlus  = keyPlus;
+        prevKeyMinus = keyMinus;
 
         // TAB only on press: MP3 → доски по кругу (/boards/*, `meme` первый) → MP3
         if (M5Cardputer.Keyboard.isPressed() && st.tab) {
