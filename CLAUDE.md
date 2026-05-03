@@ -92,7 +92,14 @@ Keyboard rows bottom → top map to low → high notes:
 ## Source Layout
 ```
 src/
-  main.cpp               ← all firmware logic
+  main.cpp               ← setup(), loop(), mode switching, boot screen
+  config.h               ← all #define constants, AppMode enum
+  audio.h/cpp            ← audio objects, stopAudio/startMp3
+  notes.h/cpp            ← note tables, polyphony state, noteOn/noteOff/stopAllNotes
+  soundboard.h/cpp       ← soundboard UI (piano + browse) and key handling
+  mp3player.h/cpp        ← MP3 player file browser UI and key handling
+  settings.h/cpp         ← volume state, load/save /settings.cfg, applyVolume
+  ui_utils.h/cpp         ← isEscKey, clearStatusBar, readFileToBuffer
   AudioOutputM5Speaker.h ← ESP8266Audio → M5Unified bridge
   sd_serial_xfer.cpp     ← USB serial SD protocol (SD> commands)
 lib/
