@@ -73,6 +73,28 @@ pio device monitor
 
 ---
 
+## Soundboard — Default Sound Map
+
+All 36 sounds + images are in `sd_card_content/sounds/` — copy the folder to your SD card.
+Without SD card, built-in synthesized sounds play instead.
+
+| Key | Sound | Key | Sound | Key | Sound |
+|-----|-------|-----|-------|-----|-------|
+| `A` | 📣 Air Horn | `M` | 🟫 Minecraft Oof | `Y` | ✨ Anime Wow |
+| `B` | 💥 Vine Boom | `N` | 😱 Oh No No No | `Z` | ✗ Wrong Buzzer |
+| `C` | 🐿 Dramatic Chipmunk | `O` | 🔵 Roblox Oof | `0` | 🎮 GameCube Startup |
+| `D` | ⏩ To Be Continued... | `P` | 😱 Patrick Star Scream | `1` | 🏆 Victory Fanfare |
+| `E` | 😤 Emotional Damage | `Q` | 🦆 Quack | `2` | 👁 FNAF Jumpscare |
+| `F` | 🎬 Directed by R.B.Weide | `R` | 🎵 Rickroll | `3` | ⏱ 3…2…1 Countdown |
+| `G` | 💀 GTA Wasted | `S` | 🎺 Sad Trombone | `4` | 😨 FNAF 2 Hallway |
+| `H` | 🧙 Hello There | `T` | ☢️ Tactical Nuke | `5` | 🚨 Red Alert |
+| `I` | 🎵 Imperial March | `U` | 🚀 Among Us Ejected | `6` | ⚡ It's Pikachu! |
+| `J` | 💪 John Cena! | `V` | 😐 Bruh | `7` | 💰 Ka-Ching! |
+| `K` | 😎 SHEEEESH | `W` | ⚠️ Windows XP Error | `8` | 🕷 Spider-Man Meme |
+| `L` | 😂 Laugh Track | `X` | 🪟 Windows XP Startup | `9` | 💢 It's Over 9000! |
+
+---
+
 ## Controls Reference
 
 | Key | Soundboard | MP3 Player |
