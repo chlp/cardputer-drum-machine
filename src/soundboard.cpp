@@ -111,7 +111,7 @@ bool resolveMemeMp3ForKey(char key, char *path, size_t pathCap) {
 }
 
 bool useSoundboardBrowseUI() {
-    return sdReady && !boardPaths.empty();
+    return sdReady && !boardPaths.empty() && soundboardDir.length() > 0;
 }
 
 void sbInitBrowseSelection() {
