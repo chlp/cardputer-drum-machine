@@ -2,7 +2,7 @@
 
 ## Project Overview
 Firmware for **M5 Cardputer ADV** (ESP32-S3): dual-mode device.
-- **Mode 1 — Soundboard**: полифоническая музыкальная клавиатура (36 нот, C3–B5). Если на SD-карте есть `.mp3` для клавиши — играет мем-звук + показывает картинку.
+- **Mode 1 — Soundboard**: полифоническая музыкальная клавиатура (36 нот, C3–B5). Панели — подпапки `/boards/` (уровень 1); стандартные мемы — `/boards/meme/`. Если в активной панели нет `.mp3` для клавиши — берётся звук и картинка из `/boards/meme/`. TAB переключает MP3 ↔ доски по кругу (`meme` первый).
 - **Mode 2 — MP3 Player**: файловый менеджер с навигацией по папкам SD-карты.
 
 ## Hardware
@@ -26,10 +26,9 @@ Firmware for **M5 Cardputer ADV** (ESP32-S3): dual-mode device.
 
 ## SD Card Structure
 ```
-/sounds/
-  a.mp3    ← мем-звук для клавиши 'a' (опционально)
-  a.jpg    ← картинка 240×110 px (опционально)
-  ...      ← по одной паре на клавишу a-z, 0-9
+/boards/
+  meme/    ← стандартная панель: a.mp3, a.jpg, … (a-z, 0-9)
+  <другая>/  ← кастом-панель — те же имена файлов; пробелы без файла → fallback из meme/
 /mp3/
   classic/
     01-Ode_to_Joy.mp3
@@ -54,7 +53,7 @@ Firmware for **M5 Cardputer ADV** (ESP32-S3): dual-mode device.
 - До 7 голосов одновременно (M5.Speaker каналы 1–7)
 - Нота звучит пока клавиша удерживается (press → `noteOn`, release → `noteOff`)
 - На экране рисуется мини-пианино; нажатые ноты подсвечиваются жёлтым
-- Если для клавиши есть `/sounds/<key>.mp3` на SD — играет мем-звук (ноты при этом останавливаются)
+- Если для клавиши есть `.mp3` на активной доске или в `/boards/meme/` — играет мем-звук (ноты при этом останавливаются)
 
 ## MP3 Player — Controls
 | Клавиша | Действие |
@@ -65,12 +64,12 @@ Firmware for **M5 Cardputer ADV** (ESP32-S3): dual-mode device.
 | `h` | Выйти на уровень выше |
 | ENTER на файле | Играть / пауза / продолжить |
 | `` ` `` (ESC) | Стоп |
-| TAB | Переключить режим |
+| TAB | Следующая soundboard-панель или MP3 Player (по кругу) |
 
 ## Universal Controls
 | Клавиша | Soundboard | MP3 Player |
 |---------|-----------|------------|
-| TAB | → MP3 Player | → Soundboard |
+| TAB | → следующая панель или MP3 Player | → первая панель в `/boards/` (обычно `meme`) |
 | `` ` `` | Стоп + сброс нот | Стоп воспроизведения |
 
 ## Source Layout
@@ -81,7 +80,7 @@ src/
 lib/
   ESP8266AudioLocal/     ← ESP8266Audio без I2S-output файлов
 sd_card_content/
-  sounds/                ← 36 мем-звуков + картинок (опционально)
+  boards/meme/           ← стандартные мемы + картинки; boards/<имя>/ — кастом-панели
   mp3/
     classic/             ← 10 классических произведений
     background/          ← 10 фоновых треков

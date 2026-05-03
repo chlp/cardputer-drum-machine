@@ -18,7 +18,7 @@ Firmware for [M5 Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer) that
 - **ESC** stops playback
 
 ### Switching Modes
-Press **TAB** at any time to switch between Soundboard and MP3 Player.
+Press **TAB** to cycle: **MP3 Player** → each **soundboard panel** (subfolder of `/boards/` on the SD card, `meme` first) → back to MP3. When you switch to a panel, its folder name appears briefly (e.g. `MEME BOARD`).
 
 ---
 
@@ -26,16 +26,15 @@ Press **TAB** at any time to switch between Soundboard and MP3 Player.
 
 Format the SD card as FAT32, then create these folders:
 
-### `/sounds/` — Meme sounds
-Each key gets one MP3 file + one image file with the same base name:
+### `/boards/` — Soundboard panels
+Each **immediate subfolder** of `/boards/` is a separate panel (TAB cycles through them after MP3). Put the same key layout in each folder: one MP3 + one image per key (`a.mp3`, `a.jpg`, …).
+
+The **`meme`** folder is the default / standard set (first after MP3). If a key has no file on the **current** panel, the firmware uses sound + image from **`/boards/meme/`** if present.
 
 ```
-/sounds/a.mp3    ← plays when 'a' is pressed
-/sounds/a.jpg    ← shown when 'a' is pressed (recommended 240×110 px)
-/sounds/b.mp3
-/sounds/b.jpg
-/sounds/1.mp3
-/sounds/1.jpg
+/boards/meme/a.mp3
+/boards/meme/a.jpg
+/boards/mykit/b.mp3   ← custom panel "mykit"
 ...
 ```
 
@@ -75,7 +74,7 @@ pio device monitor
 
 ## Soundboard — Default Sound Map
 
-All 36 sounds + images are in `sd_card_content/sounds/` — copy the folder to your SD card.
+All 36 sounds + images are in `sd_card_content/boards/meme/` — copy `boards/` (and `mp3/`) to the SD card root.
 Without SD card, built-in synthesized sounds play instead.
 
 | Key | Sound | Key | Sound | Key | Sound |

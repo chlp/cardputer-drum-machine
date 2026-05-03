@@ -13,8 +13,12 @@
 #define SD_MOSI 14
 #define SD_CS   12
 
-#define SOUNDS_DIR "/sounds"
-#define MP3_DIR    "/mp3"
+#define BOARDS_DIR "/boards"
+#define BOARDS_MEME "/boards/meme"  // стандартные мемы; fallback для кастом-досок
+#define MP3_DIR     "/mp3"
+
+#define BOARD_TITLE_MAX 10
+#define BOARD_SPLASH_MS 650
 
 #define SCREEN_W 240
 #define SCREEN_H 135
@@ -24,6 +28,12 @@
 enum AppMode { SOUNDBOARD, MP3_PLAYER };
 static AppMode mode     = SOUNDBOARD;
 static bool    sdReady  = false;
+
+// Подпапки /boards (ровно 1 уровень) — отдельные soundboard-панели; `meme` = стандарт, первый в TAB.
+static std::vector<String> boardPaths;
+static int                 soundboardBoardIdx = 0;
+static String              soundboardDir;       // активная панель: "/boards/<name>" или пусто
+static uint32_t            boardSplashUntilMs = 0;
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
 
@@ -163,21 +173,105 @@ static uint8_t* readFileToBuffer(const char *path, size_t &outLen) {
     return buf;
 }
 
-static bool showImageForKey(char key) {
-    char path[48];
+static String sdEntryBaseName(const String &entryName) {
+    int p = entryName.lastIndexOf('/');
+    return (p >= 0) ? entryName.substring(p + 1) : entryName;
+}
+
+static void scanSoundboardDirs() {
+    boardPaths.clear();
+    if (!sdReady) return;
+    File root = SD.open(BOARDS_DIR);
+    if (!root || !root.isDirectory()) {
+        if (root) root.close();
+        return;
+    }
+    std::vector<String> names;
+    while (true) {
+        File f = root.openNextFile();
+        if (!f) break;
+        if (f.isDirectory()) names.push_back(sdEntryBaseName(String(f.name())));
+        f.close();
+    }
+    root.close();
+    std::sort(names.begin(), names.end());
+    for (size_t i = 0; i < names.size(); i++) {
+        String low = names[i]; low.toLowerCase();
+        if (low == "meme") {
+            String m = names[i];
+            names.erase(names.begin() + (int)i);
+            names.insert(names.begin(), m);
+            break;
+        }
+    }
+    for (auto &n : names) {
+        if (n.length() == 0) continue;
+        boardPaths.push_back(String(BOARDS_DIR) + "/" + n);
+    }
+}
+
+static bool tryDrawImageFromDir(const String &dir, char key) {
+    if (!sdReady || dir.length() == 0) return false;
+    char path[64];
     size_t len = 0;
     uint8_t *buf;
-    snprintf(path, sizeof(path), "%s/%c.jpg", SOUNDS_DIR, key);
-    if (sdReady && SD.exists(path)) {
+    snprintf(path, sizeof(path), "%s/%c.jpg", dir.c_str(), key);
+    if (SD.exists(path)) {
         buf = readFileToBuffer(path, len);
         if (buf) { M5Cardputer.Display.drawJpg(buf, len, 0, 0, SCREEN_W, IMG_H); free(buf); return true; }
     }
-    snprintf(path, sizeof(path), "%s/%c.png", SOUNDS_DIR, key);
-    if (sdReady && SD.exists(path)) {
+    snprintf(path, sizeof(path), "%s/%c.png", dir.c_str(), key);
+    if (SD.exists(path)) {
         buf = readFileToBuffer(path, len);
         if (buf) { M5Cardputer.Display.drawPng(buf, len, 0, 0, SCREEN_W, IMG_H); free(buf); return true; }
     }
     return false;
+}
+
+static bool showImageForKey(char key) {
+    if (soundboardDir.length() > 0) {
+        if (tryDrawImageFromDir(soundboardDir, key)) return true;
+        if (soundboardDir != String(BOARDS_MEME)) {
+            if (tryDrawImageFromDir(String(BOARDS_MEME), key)) return true;
+        }
+    } else {
+        if (tryDrawImageFromDir(String(BOARDS_MEME), key)) return true;
+    }
+    return false;
+}
+
+// true + path: воспроизвести MP3 с SD (активная доска, иначе /boards/meme)
+static bool resolveMemeMp3ForKey(char key, char *path, size_t pathCap) {
+    if (!sdReady) return false;
+    if (soundboardDir.length() > 0) {
+        snprintf(path, pathCap, "%s/%c.mp3", soundboardDir.c_str(), key);
+        if (SD.exists(path)) return true;
+        if (soundboardDir != String(BOARDS_MEME)) {
+            snprintf(path, pathCap, "%s/%c.mp3", BOARDS_MEME, key);
+            if (SD.exists(path)) return true;
+        }
+    } else {
+        snprintf(path, pathCap, "%s/%c.mp3", BOARDS_MEME, key);
+        if (SD.exists(path)) return true;
+    }
+    return false;
+}
+
+static void drawBoardSplash() {
+    auto &d = M5Cardputer.Display;
+    d.fillScreen(TFT_BLACK);
+    String name;
+    if (soundboardDir.length() == 0) name = "PIANO";
+    else name = sdEntryBaseName(soundboardDir);
+    name.toUpperCase();
+    if (name.length() > BOARD_TITLE_MAX) name = name.substring(0, BOARD_TITLE_MAX);
+    String title = name + " BOARD";
+    d.setTextSize(2);
+    d.setTextColor(TFT_WHITE, TFT_BLACK);
+    d.drawCenterString(title, SCREEN_W / 2, SCREEN_H / 2 - 12);
+    d.setTextSize(1);
+    d.setTextColor(0x7BEF, TFT_BLACK);
+    d.drawCenterString("` = clear   TAB = next", SCREEN_W / 2, SCREEN_H / 2 + 14);
 }
 
 // ── Piano display (36-note strip) ────────────────────────────────────────────
@@ -245,7 +339,10 @@ static void drawPiano() {
     d.fillRect(0, WH + 2, TW, IMG_H - WH - 2, TFT_BLACK);
     d.drawCenterString(cnt ? names : "~ play keys ~", TW / 2, WH + 6);
 
-    drawStatusBar("`=clear  TAB=MP3 player", 0x7BEF);
+    const char *tabHint = boardPaths.empty()
+        ? "`=clear  TAB=MP3 player"
+        : (soundboardBoardIdx + 1 >= (int)boardPaths.size() ? "`=clear  TAB=MP3 player" : "`=clear  TAB=next board");
+    drawStatusBar(tabHint, 0x7BEF);
 }
 
 // ── Soundboard ────────────────────────────────────────────────────────────────
@@ -294,11 +391,11 @@ static void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
         for (char pc : prevSbKeys) if (pc == c) { wasHeld = true; break; }
         if (wasHeld) continue; // already handled
 
-        // New keypress
-        char audioPath[48];
-        snprintf(audioPath, sizeof(audioPath), "%s/%c.mp3", SOUNDS_DIR, c);
+        // New keypress — мем с активной доски или fallback /boards/meme
+        char audioPath[64];
+        bool haveMeme = resolveMemeMp3ForKey(c, audioPath, sizeof(audioPath));
 
-        if (sdReady && SD.exists(audioPath)) {
+        if (haveMeme) {
             // SD meme sound: stop notes + previous MP3, play new
             stopAllNotes();
             M5Cardputer.Display.fillScreen(TFT_BLACK);
@@ -390,7 +487,7 @@ static void playerDrawUI() {
     }
     if (playerEntries.empty()) {
         d.setTextColor(TFT_YELLOW, TFT_BLACK); d.drawCenterString("Empty folder", SCREEN_W / 2, 60);
-        d.setTextColor(0x7BEF, TFT_BLACK); d.drawCenterString("h=back  TAB=soundboard", SCREEN_W / 2, 80); return;
+        d.setTextColor(0x7BEF, TFT_BLACK); d.drawCenterString("h=back  TAB=boards", SCREEN_W / 2, 80); return;
     }
 
     const int ROW_H   = 16;
@@ -504,18 +601,29 @@ static void playerHandleKeys(const Keyboard_Class::KeysState &st) {
 
 // ── Mode Switching ────────────────────────────────────────────────────────────
 
-static void enterSoundboard() {
+static void enterSoundboard(int boardIdx) {
     stopAudio();
     stopAllNotes();
     mode = SOUNDBOARD;
     sdSoundActive = false;
+    if (boardPaths.empty()) {
+        soundboardBoardIdx = 0;
+        soundboardDir = "";
+    } else {
+        soundboardBoardIdx = boardIdx;
+        if (soundboardBoardIdx < 0) soundboardBoardIdx = 0;
+        if (soundboardBoardIdx >= (int)boardPaths.size()) soundboardBoardIdx = (int)boardPaths.size() - 1;
+        soundboardDir = boardPaths[soundboardBoardIdx];
+    }
     prevSbKeys.clear();
-    drawPiano();
+    boardSplashUntilMs = millis() + BOARD_SPLASH_MS;
+    drawBoardSplash();
 }
 
 static void enterMp3Player() {
     stopAudio();
     stopAllNotes();
+    boardSplashUntilMs = 0;
     mode         = MP3_PLAYER;
     sdSoundActive = false;
     playerState  = PLAYER_STOPPED;
@@ -541,7 +649,7 @@ static void drawBootScreen() {
     d.drawCenterString("MEME BOARD", SCREEN_W / 2, 52);
     d.setTextSize(1);
     d.setTextColor(0xBDF7, TFT_BLACK);
-    d.drawCenterString("v2.0  |  TAB = MP3 Player", SCREEN_W / 2, 76);
+    d.drawCenterString("v2.0  |  TAB = boards / MP3", SCREEN_W / 2, 76);
 }
 
 // ── Arduino Entry Points ──────────────────────────────────────────────────────
@@ -569,6 +677,15 @@ void setup() {
 
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
     sdReady = SD.begin(SD_CS, SPI, 25000000);
+    scanSoundboardDirs();
+    if (!boardPaths.empty()) {
+        soundboardBoardIdx = 0;
+        soundboardDir      = boardPaths[0];
+    } else {
+        soundboardBoardIdx = 0;
+        soundboardDir      = "";
+    }
+    boardSplashUntilMs = 0;
 
     // Init note lookup table
     memset(keyNoteIdx, -1, sizeof(keyNoteIdx));
@@ -582,6 +699,11 @@ void setup() {
 
 void loop() {
     M5Cardputer.update();
+
+    if (mode == SOUNDBOARD && boardSplashUntilMs && millis() >= boardSplashUntilMs) {
+        boardSplashUntilMs = 0;
+        drawPiano();
+    }
 
     // Service MP3 stream
     if (gen && gen->isRunning()) {
@@ -601,10 +723,22 @@ void loop() {
     if (M5Cardputer.Keyboard.isChange()) {
         Keyboard_Class::KeysState st = M5Cardputer.Keyboard.keysState();
 
-        // TAB only on press
+        // TAB only on press: MP3 → доски по кругу (/boards/*, `meme` первый) → MP3
         if (M5Cardputer.Keyboard.isPressed() && st.tab) {
-            if (mode == SOUNDBOARD) enterMp3Player();
-            else                    enterSoundboard();
+            if (mode == MP3_PLAYER) {
+                enterSoundboard(0);
+            } else {
+                if (boardPaths.empty()) enterMp3Player();
+                else {
+                    int next = soundboardBoardIdx + 1;
+                    if (next >= (int)boardPaths.size()) enterMp3Player();
+                    else enterSoundboard(next);
+                }
+            }
+            return;
+        }
+
+        if (mode == SOUNDBOARD && boardSplashUntilMs && millis() < boardSplashUntilMs) {
             return;
         }
 
