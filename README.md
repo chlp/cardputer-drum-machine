@@ -65,6 +65,7 @@ pio run
 
 # Flash to device
 pio run -t upload
+pio run -t upload --upload-port /dev/tty.usbmodem201101
 
 # Open serial monitor
 pio device monitor
