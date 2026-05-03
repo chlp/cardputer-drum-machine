@@ -49,55 +49,93 @@ def _print_bar(done: int, total: int, width: int = 30) -> None:
 
 
 def read_line(ser: serial.Serial) -> str:
-    buf = bytearray()
     while True:
-        b = ser.read(1)
-        if not b:
-            raise TimeoutError("serial read timeout")
-        if b == b"\n":
-            return buf.decode("utf-8", errors="replace").rstrip("\r")
-        buf.extend(b)
+        buf = bytearray()
+        while True:
+            b = ser.read(1)
+            if not b:
+                raise TimeoutError("serial read timeout")
+            if b == b"\n":
+                break
+            buf.extend(b)
+        line = buf.decode("utf-8", errors="replace").rstrip("\r")
+        # Skip ESP32 IDF log lines: [ 12345][E][tag.cpp:42] message
+        if line.startswith("[") and "][" in line:
+            continue
+        return line
 
 
-def open_serial(port: str, baud: int) -> serial.Serial:
-    """Open serial port and wait for device to become ready.
-
-    ESP32-S3 may reset when the host opens the CDC port; we wait for it to
-    finish booting and respond to PING before returning the handle.
-    """
-    # Short timeout for the PING probe; switched to READ_TIMEOUT afterwards.
-    ser = serial.Serial(port, baud, timeout=2, dsrdtr=False, rtscts=False)
-    deadline = time.time() + CONNECT_TIMEOUT
-    while True:
-        time.sleep(0.5)
+def _try_ping(ser: serial.Serial) -> bool:
+    """Send PING, return True if '+OK pong' received within ser.timeout."""
+    try:
         ser.reset_input_buffer()
         ser.write(f"{PREFIX} PING\n".encode())
         ser.flush()
-        try:
+        while True:
             ln = read_line(ser)
-            # Skip startup banners until we see the PING reply.
-            probe_deadline = time.time() + 2
-            while time.time() < probe_deadline:
-                if ln == "+OK pong":
-                    ser.timeout = READ_TIMEOUT
-                    return ser
-                try:
-                    ln = read_line(ser)
-                except TimeoutError:
+            if ln == "+OK pong":
+                return True
+            # skip startup banners (+SDX ready, etc.)
+    except (TimeoutError, serial.SerialException, OSError):
+        return False
+
+
+def open_serial(port: str, baud: int) -> serial.Serial:
+    """Open serial port and verify device is alive with PING.
+
+    Opens the port once, waits 2 s for the device to finish booting (in case
+    the CDC open triggers a reset), then polls PING every 0.5 s on the same
+    handle.  Reopens only when a SerialException signals a true disconnect.
+    """
+    ser: "serial.Serial | None" = None
+    deadline = time.time() + CONNECT_TIMEOUT
+    boot_wait_done = False
+
+    while True:
+        if ser is None:
+            try:
+                ser = serial.Serial(port, baud, timeout=2)
+            except serial.SerialException:
+                time.sleep(0.5)
+                if time.time() >= deadline:
                     break
-        except TimeoutError:
-            pass
+                continue
+            # Give device time to boot after the potential reset on port-open.
+            time.sleep(2.0)
+            boot_wait_done = True
+
+        if _try_ping(ser):
+            ser.timeout = READ_TIMEOUT
+            return ser
+
+        # PING failed on an open port — device may still be booting.
+        time.sleep(0.5)
         if time.time() >= deadline:
+            break
+
+        # If the port went away (disconnect), reopen it.
+        try:
+            ser.reset_input_buffer()
+        except (serial.SerialException, OSError):
+            try:
+                ser.close()
+            except Exception:
+                pass
+            ser = None
+
+    if ser is not None:
+        try:
             ser.close()
-            print(
-                "\nDevice not responding after "
-                f"{CONNECT_TIMEOUT}s.\n"
-                "  • Is the firmware running? Try: pio device monitor\n"
-                "  • Is the SD card inserted?\n"
-                "  • Try: python3 tools/sd_xfer.py … ls /",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        except Exception:
+            pass
+    print(
+        f"\nDevice not responding after {CONNECT_TIMEOUT}s.\n"
+        "  • Is the firmware running? Try: pio device monitor\n"
+        "  • Is the SD card inserted?\n"
+        "  • Try: python3 tools/sd_xfer.py … ls /",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def cmd_line(ser: serial.Serial, line: str) -> None:
@@ -158,11 +196,9 @@ def do_put(ser: serial.Serial, local: str, remote: str) -> None:
     cmd_line(ser, f"{PREFIX} PUT {remote} {size}")
     ln = read_line(ser)
     if ln.startswith("-ERR"):
-        print(ln, file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"PUT rejected: {ln}")
     if ln != "+GO":
-        print("expected +GO, got:", ln, file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"expected +GO, got: {ln}")
     sent = 0
     _print_bar(0, size)
     while sent < size:
@@ -171,11 +207,16 @@ def do_put(ser: serial.Serial, local: str, remote: str) -> None:
         ser.flush()
         sent += len(chunk)
         _print_bar(sent, size)
+        # Wait for per-chunk ACK to prevent firmware RX queue overflow
+        ln = read_line(ser)
+        if ln == "+ACK":
+            continue
+        if ln == "+OK":
+            break
+        raise RuntimeError(f"PUT failed mid-transfer: {ln}")
+    else:
+        raise RuntimeError("PUT: +OK not received")
     print(flush=True)  # newline after progress bar
-    ln = read_line(ser)
-    if ln != "+OK":
-        print(ln, file=sys.stderr)
-        sys.exit(1)
 
 
 def do_rm(ser: serial.Serial, path: str) -> None:
@@ -236,11 +277,19 @@ def remote_all_files(ser: serial.Serial) -> dict[str, int]:
     return files
 
 
+ALLOWED_EXTENSIONS = {".mp3", ".jpg", ".png"}
+
+
 def local_manifest(content_root: Path) -> dict[str, tuple[Path, int]]:
-    """Map remote absolute path -> (local Path, size). Skips .DS_Store."""
+    """Map remote absolute path -> (local Path, size). Skips hidden files and non-media formats."""
     desired: dict[str, tuple[Path, int]] = {}
     for p in content_root.rglob("*"):
-        if not p.is_file() or p.name == ".DS_Store":
+        if not p.is_file():
+            continue
+        # Skip hidden files (starting with dot)
+        if any(part.startswith(".") for part in p.parts[len(content_root.parts):]):
+            continue
+        if p.suffix.lower() not in ALLOWED_EXTENSIONS:
             continue
         rel = p.relative_to(content_root).as_posix()
         remote = "/" + rel
@@ -280,13 +329,17 @@ def do_sync(ser: serial.Serial, content_root: Path) -> None:
     remote = remote_all_files(ser)
     print(f" {len(remote)} file(s) found.")
 
-    extra = sorted(set(remote) - set(desired))
+    MANAGED_PREFIXES = ("/boards/", "/mp3/")
+    extra = sorted(
+        p for p in set(remote) - set(desired)
+        if any(p.startswith(prefix) for prefix in MANAGED_PREFIXES)
+    )
     if extra:
         print(f"Removing {len(extra)} extra file(s):")
         for i, rpath in enumerate(extra, 1):
             print(f"  [{i}/{len(extra)}] RM {rpath}")
             if not rm_remote(ser, rpath):
-                sys.exit(1)
+                print(f"  WARN: could not remove {rpath}, skipping", file=sys.stderr)
 
     desired_list = sorted(desired.items())
     n_check = len(desired_list)
@@ -309,9 +362,25 @@ def do_sync(ser: serial.Serial, content_root: Path) -> None:
     total_bytes = sum(sz for _, _, sz in to_put)
     nw = len(str(n))
     print(f"Uploading {n} file(s)  ({_fmt_size(total_bytes)} total):")
+    failed: list[str] = []
     for i, (lp, rpath, want_sz) in enumerate(to_put, 1):
         print(f"  [{i:{nw}d}/{n}] {rpath}  ({_fmt_size(want_sz)})")
-        do_put(ser, str(lp), rpath)
+        for attempt in range(1, 4):
+            try:
+                do_put(ser, str(lp), rpath)
+                break
+            except (RuntimeError, TimeoutError) as e:
+                print(f"\n  WARN attempt {attempt}/3: {e}", file=sys.stderr)
+                if attempt == 3:
+                    failed.append(rpath)
+                else:
+                    time.sleep(0.5)
+
+    if failed:
+        print(f"\nFailed to upload {len(failed)} file(s):", file=sys.stderr)
+        for f in failed:
+            print(f"  {f}", file=sys.stderr)
+        sys.exit(1)
 
     print("+OK sync complete")
 

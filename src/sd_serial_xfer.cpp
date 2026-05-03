@@ -16,7 +16,7 @@
 #define SDX_PREFIX_LEN 3
 #define SDX_MAX_LINE 256
 #define SDX_MAX_PATH 128
-#define SDX_PUT_CHUNK 512
+#define SDX_PUT_CHUNK 4096
 
 static String       sdxLineBuf;
 static bool         sdxPutActive = false;
@@ -160,17 +160,24 @@ static void sdxStartPut(const String &path, size_t total) {
     if (!sdxPutFile) { sdxReplyErr("open_write"); return; }
     sdxPutRemain = total;
     sdxPutActive = true;
+    Serial.setTimeout(5000);
     Serial.println("+GO");
     Serial.flush();
 }
 
 static void sdxDrainPut() {
     if (!sdxPutActive) return;
-    uint8_t buf[SDX_PUT_CHUNK];
-    while (sdxPutRemain > 0 && Serial.available() > 0) {
+    static uint8_t buf[SDX_PUT_CHUNK];
+    while (sdxPutRemain > 0) {
         size_t want = (sdxPutRemain > SDX_PUT_CHUNK) ? SDX_PUT_CHUNK : sdxPutRemain;
         int n = Serial.readBytes(buf, want);
-        if (n <= 0) break;
+        if (n <= 0) {
+            sdxPutFile.close();
+            sdxPutActive = false;
+            Serial.setTimeout(1000);
+            sdxReplyErr("put_timeout");
+            return;
+        }
         size_t w = sdxPutFile.write(buf, (size_t)n);
         if (w != (size_t)n) {
             sdxPutFile.close();
@@ -179,12 +186,19 @@ static void sdxDrainPut() {
             return;
         }
         sdxPutRemain -= (size_t)n;
+        // ACK each chunk so Python waits before sending the next (prevents queue overflow)
+        if (sdxPutRemain > 0) {
+            Serial.println("+ACK");
+            Serial.flush();
+        }
         yield();
     }
     if (sdxPutRemain == 0) {
         sdxPutFile.close();
         sdxPutActive = false;
+        Serial.setTimeout(1000);
         Serial.println("+OK");
+        Serial.flush();
     }
 }
 
@@ -263,6 +277,7 @@ void sdSerialXferLoop() {
                 sdxProcessLine(sdxLineBuf);
                 sdxLineBuf = "";
             }
+            if (sdxPutActive) break;
             continue;
         }
         if (sdxLineBuf.length() >= SDX_MAX_LINE) {

@@ -1,6 +1,7 @@
 #include <M5Cardputer.h>
 #include <SPI.h>
 #include <SD.h>
+#include "esp_log.h"
 #include <vector>
 #include <algorithm>
 #include <AudioGeneratorMP3.h>
@@ -901,8 +902,10 @@ static void drawBootScreen() {
 // ── Arduino Entry Points ──────────────────────────────────────────────────────
 
 void setup() {
+    esp_log_level_set("*", ESP_LOG_NONE);
     Serial.setRxBufferSize(16384);
     auto cfg = M5.config();
+    cfg.serial_baudrate = 115200;   // enables Serial.begin() inside M5Unified
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(1);
     M5Cardputer.Display.setBrightness(200);
@@ -916,7 +919,7 @@ void setup() {
     spk->SetGain(1.0f);
 
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-    sdReady = SD.begin(SD_CS, SPI, 25000000);
+    sdReady = SD.begin(SD_CS, SPI, 10000000);
     scanSoundboardDirs();
 
     // Restore saved settings (volume + last panel)
