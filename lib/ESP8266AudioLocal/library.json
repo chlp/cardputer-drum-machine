@@ -1,0 +1,7 @@
+{
+  "name": "ESP8266AudioLocal",
+  "version": "2.4.1",
+  "description": "ESP8266Audio with I2S/PDM/SPDIF outputs removed (IDF4 compatibility)",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}
