@@ -361,8 +361,7 @@ void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
             for (char pc : prevSbKeys) if (pc == c) { wasHeld = true; break; }
             if (wasHeld) continue;
             sbCurKey = c;
-            if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
-            drawSoundboardBrowse(sbCurKey);
+            playSoundboardBrowseSelection();
         }
         prevSbKeys = curr;
         return;
