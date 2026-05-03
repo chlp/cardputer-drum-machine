@@ -19,7 +19,6 @@
 #define MP3_DIR     "/mp3"
 
 #define BOARD_TITLE_MAX 10
-#define BOARD_SPLASH_MS 900
 #define PLAYER_HINT_MS  2200
 
 #define SETTINGS_PATH   "/settings.cfg"
@@ -39,7 +38,7 @@ static bool    sdReady  = false;
 static std::vector<String> boardPaths;
 static int                 soundboardBoardIdx = 0;
 static String              soundboardDir;       // активная панель: "/boards/<name>" или пусто
-static uint32_t            boardSplashUntilMs = 0;
+static bool                boardSplashActive  = false;
 static uint32_t            playerHintUntilMs  = 0;
 
 static uint8_t  masterVolume         = 200;
@@ -837,7 +836,7 @@ static void enterSoundboard(int boardIdx) {
     prevSbKeys.clear();
     sbPrevComma = sbPrevSlash = false;
     sbInitBrowseSelection();
-    boardSplashUntilMs = millis() + BOARD_SPLASH_MS;
+    boardSplashActive = true;
     drawBoardSplash();
     saveSettings();
 }
@@ -845,7 +844,7 @@ static void enterSoundboard(int boardIdx) {
 static void enterMp3Player() {
     stopAudio();
     stopAllNotes();
-    boardSplashUntilMs = 0;
+    boardSplashActive = false;
     playerHintUntilMs = millis() + PLAYER_HINT_MS;
     mode         = MP3_PLAYER;
     sdSoundActive = false;
@@ -907,7 +906,7 @@ void setup() {
         soundboardBoardIdx = 0;
         soundboardDir      = "";
     }
-    boardSplashUntilMs = 0;
+    boardSplashActive = false;
 
     // Init note lookup table
     memset(keyNoteIdx, -1, sizeof(keyNoteIdx));
@@ -926,10 +925,6 @@ void loop() {
     M5Cardputer.update();
     sdSerialXferLoop();
 
-    if (mode == SOUNDBOARD && boardSplashUntilMs && millis() >= boardSplashUntilMs) {
-        boardSplashUntilMs = 0;
-        soundboardRefresh();
-    }
     if (mode == MP3_PLAYER && playerHintUntilMs && millis() >= playerHintUntilMs) {
         playerHintUntilMs = 0;
         playerDrawUI();
@@ -986,7 +981,11 @@ void loop() {
             return;
         }
 
-        if (mode == SOUNDBOARD && boardSplashUntilMs && millis() < boardSplashUntilMs) {
+        if (mode == SOUNDBOARD && boardSplashActive) {
+            if (M5Cardputer.Keyboard.isPressed()) {
+                boardSplashActive = false;
+                soundboardRefresh();
+            }
             return;
         }
 
