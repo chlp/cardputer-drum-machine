@@ -106,13 +106,12 @@ void setup() {
         soundboardBoardIdx = 0;
         soundboardDir      = "";
     }
-    boardSplashActive = false;
-
     initNotes();
 
     delay(800);
     if (!boardPaths.empty()) sbInitBrowseSelection();
-    soundboardRefresh();
+    boardSplashActive = true;
+    drawBoardSplash();
 
     sdSerialXferSetup();
 }
