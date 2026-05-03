@@ -2,6 +2,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <vector>
+#include <algorithm>
 #include <AudioGeneratorMP3.h>
 #include <AudioFileSourceSD.h>
 #include "AudioOutputM5Speaker.h"
@@ -192,86 +193,198 @@ static void soundboardHandleKeys(const Keyboard_Class::KeysState &st) {
 
 // ── MP3 Player ────────────────────────────────────────────────────────────────
 
-static std::vector<String> playlist;
-static int selIdx = 0;
-static bool playerPlaying = false;
+struct DirEntry {
+    String name;
+    bool   isDir;
+};
 
-static void loadPlaylist() {
-    playlist.clear();
+enum PlayerState { PLAYER_STOPPED, PLAYER_PLAYING, PLAYER_PAUSED };
+
+static String      playerPath  = MP3_DIR;
+static std::vector<DirEntry> playerEntries;
+static int         playerSelIdx = 0;
+static String      playerFile   = "";
+static PlayerState playerState  = PLAYER_STOPPED;
+
+static void playerLoadDir(const String &path) {
+    playerEntries.clear();
     if (!sdReady) return;
-    File dir = SD.open(MP3_DIR);
+
+    File dir = SD.open(path.c_str());
     if (!dir || !dir.isDirectory()) return;
+
+    std::vector<String> dirs, files;
     while (true) {
         File f = dir.openNextFile();
         if (!f) break;
-        if (!f.isDirectory()) {
-            String name = f.name();
+        String name = f.name();
+        if (f.isDirectory()) {
+            dirs.push_back(name);
+        } else {
             String low = name;
             low.toLowerCase();
-            if (low.endsWith(".mp3")) {
-                playlist.push_back(String(MP3_DIR) + "/" + name);
-            }
+            if (low.endsWith(".mp3")) files.push_back(name);
         }
         f.close();
     }
     dir.close();
+
+    std::sort(dirs.begin(), dirs.end());
+    std::sort(files.begin(), files.end());
+
+    for (auto &d : dirs)  playerEntries.push_back({d, true});
+    for (auto &f : files) playerEntries.push_back({f, false});
 }
 
 static void playerDrawUI() {
-    M5Cardputer.Display.fillScreen(TFT_BLACK);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(TFT_CYAN, TFT_BLACK);
-    M5Cardputer.Display.drawCenterString("MP3 PLAYER", SCREEN_W / 2, 2);
+    auto &d = M5Cardputer.Display;
+    d.fillScreen(TFT_BLACK);
+    d.setTextSize(1);
+
+    // Header
+    d.setTextColor(TFT_CYAN, TFT_BLACK);
+    d.drawCenterString("MP3 PLAYER", SCREEN_W / 2, 2);
+
+    // Current path (strip leading /mp3 for brevity)
+    String pathDisp = playerPath;
+    if (pathDisp.startsWith(String(MP3_DIR))) pathDisp = pathDisp.substring(strlen(MP3_DIR));
+    if (pathDisp.length() == 0) pathDisp = "/";
+    if (pathDisp.length() > 32) pathDisp = pathDisp.substring(pathDisp.length() - 32);
+    d.setTextColor(0x7BEF, TFT_BLACK);
+    d.drawString(pathDisp, 2, 14);
 
     if (!sdReady) {
-        M5Cardputer.Display.setTextColor(TFT_RED, TFT_BLACK);
-        M5Cardputer.Display.drawCenterString("SD card not found!", SCREEN_W / 2, 60);
+        d.setTextColor(TFT_RED, TFT_BLACK);
+        d.drawCenterString("SD card not found!", SCREEN_W / 2, 70);
         return;
     }
-    if (playlist.empty()) {
-        M5Cardputer.Display.setTextColor(TFT_RED, TFT_BLACK);
-        M5Cardputer.Display.drawCenterString("No MP3 in /mp3 folder", SCREEN_W / 2, 55);
-        M5Cardputer.Display.setTextColor(0x7BEF, TFT_BLACK);
-        M5Cardputer.Display.drawCenterString("TAB = Soundboard", SCREEN_W / 2, 75);
+    if (playerEntries.empty()) {
+        d.setTextColor(TFT_YELLOW, TFT_BLACK);
+        d.drawCenterString("Empty folder", SCREEN_W / 2, 60);
+        d.setTextColor(0x7BEF, TFT_BLACK);
+        d.drawCenterString("h=back  TAB=soundboard", SCREEN_W / 2, 80);
         return;
     }
 
-    // File list: up to 6 rows of 15px starting at y=16
-    const int ROW_H = 15;
-    const int VISIBLE = 6;
-    int start = selIdx - VISIBLE / 2;
+    // Visible file list: 5 rows of 16px each, starting at y=27
+    const int ROW_H   = 16;
+    const int VISIBLE = 5;
+    const int LIST_Y  = 27;
+
+    int start = playerSelIdx - VISIBLE / 2;
     if (start < 0) start = 0;
-    if (start + VISIBLE > (int)playlist.size()) start = (int)playlist.size() - VISIBLE;
+    if (start + VISIBLE > (int)playerEntries.size())
+        start = (int)playerEntries.size() - VISIBLE;
     if (start < 0) start = 0;
 
-    for (int i = 0; i < VISIBLE && start + i < (int)playlist.size(); i++) {
-        int idx = start + i;
-        bool sel = (idx == selIdx);
-        bool playing = sel && playerPlaying;
+    for (int i = 0; i < VISIBLE && start + i < (int)playerEntries.size(); i++) {
+        int   idx  = start + i;
+        auto &e    = playerEntries[idx];
+        bool  sel  = (idx == playerSelIdx);
 
-        M5Cardputer.Display.setTextColor(sel ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
+        String fullPath = playerPath + "/" + e.name;
+        bool isPlaying = (!e.isDir && fullPath == playerFile && playerState == PLAYER_PLAYING);
+        bool isPaused  = (!e.isDir && fullPath == playerFile && playerState == PLAYER_PAUSED);
 
-        String name = playlist[idx];
-        int slash = name.lastIndexOf('/');
-        if (slash >= 0) name = name.substring(slash + 1);
-        if (name.length() > 4 && (name.endsWith(".mp3") || name.endsWith(".MP3")))
-            name = name.substring(0, name.length() - 4);
-        if (name.length() > 29) name = name.substring(0, 29);
+        uint16_t color = sel ? TFT_YELLOW : TFT_WHITE;
+        if (isPlaying) color = TFT_GREEN;
+        if (isPaused)  color = 0xFD20; // orange
 
-        String line = (playing ? "\x10 " : (sel ? "> " : "  ")) + name;
-        M5Cardputer.Display.drawString(line, 4, 16 + i * ROW_H);
+        d.setTextColor(color, TFT_BLACK);
+
+        String prefix;
+        if (isPlaying)     prefix = "\x10 "; // ► character
+        else if (isPaused) prefix = "~ ";
+        else if (sel)      prefix = "> ";
+        else               prefix = "  ";
+
+        String name = e.name;
+        if (!e.isDir && name.length() > 4) {
+            String low = name; low.toLowerCase();
+            if (low.endsWith(".mp3")) name = name.substring(0, name.length() - 4);
+        }
+        if (e.isDir) name = "[" + name + "]";
+        if (name.length() > 27) name = name.substring(0, 27);
+
+        d.drawString(prefix + name, 2, LIST_Y + i * ROW_H);
     }
 
-    String status = playerPlaying ? "Playing | j/k=nav ENTER=play `=stop TAB=board"
-                                  : "ENTER=play  j/k=nav  `=stop  TAB=soundboard";
-    M5Cardputer.Display.setTextColor(0x7BEF, TFT_BLACK);
-    M5Cardputer.Display.drawString(status, 2, STATUS_Y + 6);
+    // Scroll indicator
+    if ((int)playerEntries.size() > VISIBLE) {
+        int barH = SCREEN_H - LIST_Y - (SCREEN_H - STATUS_Y) - 2;
+        int thumbH = max(4, barH * VISIBLE / (int)playerEntries.size());
+        int thumbY = LIST_Y + barH * playerSelIdx / (int)playerEntries.size();
+        d.fillRect(SCREEN_W - 3, LIST_Y, 3, barH, 0x2104);
+        d.fillRect(SCREEN_W - 3, thumbY, 3, thumbH, TFT_WHITE);
+    }
+
+    // Status bar
+    String status;
+    if (playerState == PLAYER_PLAYING) status = "ENTER=pause  `=stop  h=back  l=fwd";
+    else if (playerState == PLAYER_PAUSED)  status = "ENTER=resume  `=stop  h=back  l=fwd";
+    else                                    status = "ENTER=play  h=back  l=enter  TAB=board";
+    d.setTextColor(0x7BEF, TFT_BLACK);
+    d.drawString(status, 2, STATUS_Y + 5);
 }
 
-static void playerPlaySelected() {
-    if (playlist.empty()) return;
-    if (startMp3(playlist[selIdx].c_str())) {
-        playerPlaying = true;
+static void playerGoForward() {
+    if (playerEntries.empty()) return;
+    auto &e = playerEntries[playerSelIdx];
+    if (!e.isDir) return;
+    playerPath    = playerPath + "/" + e.name;
+    playerSelIdx  = 0;
+    playerLoadDir(playerPath);
+    playerDrawUI();
+}
+
+static void playerGoBack() {
+    if (playerPath == MP3_DIR) return;
+    int slash = playerPath.lastIndexOf('/');
+    playerPath   = (slash > 0) ? playerPath.substring(0, slash) : MP3_DIR;
+    playerSelIdx = 0;
+    playerLoadDir(playerPath);
+    playerDrawUI();
+}
+
+static void playerTogglePlay() {
+    if (playerEntries.empty()) return;
+    auto &e = playerEntries[playerSelIdx];
+
+    if (e.isDir) {
+        playerGoForward();
+        return;
+    }
+
+    String filePath = playerPath + "/" + e.name;
+
+    if (playerState == PLAYER_PLAYING && playerFile == filePath) {
+        // Pause: halt audio decoder, remember file
+        stopAudio();
+        playerState = PLAYER_PAUSED;
+    } else if (playerState == PLAYER_PAUSED && playerFile == filePath) {
+        // Resume (restart from beginning — MP3 has no seek)
+        if (startMp3(playerFile.c_str())) playerState = PLAYER_PLAYING;
+        else                              playerState = PLAYER_STOPPED;
+    } else {
+        // Play new or restart stopped
+        playerFile = filePath;
+        if (startMp3(playerFile.c_str())) playerState = PLAYER_PLAYING;
+        else                              playerState = PLAYER_STOPPED;
+    }
+    playerDrawUI();
+}
+
+static void playerAutoAdvance() {
+    // Find next playable file in current directory
+    int next = playerSelIdx + 1;
+    while (next < (int)playerEntries.size() && playerEntries[next].isDir) next++;
+    if (next < (int)playerEntries.size()) {
+        playerSelIdx = next;
+        playerFile   = playerPath + "/" + playerEntries[next].name;
+        if (!startMp3(playerFile.c_str())) playerState = PLAYER_STOPPED;
+        // state stays PLAYER_PLAYING if startMp3 returned true
+    } else {
+        playerState = PLAYER_STOPPED;
     }
     playerDrawUI();
 }
@@ -279,22 +392,26 @@ static void playerPlaySelected() {
 static void playerHandleKeys(const Keyboard_Class::KeysState &st) {
     if (isEscKey(st)) {
         stopAudio();
-        playerPlaying = false;
+        playerState = PLAYER_STOPPED;
         playerDrawUI();
         return;
     }
     if (st.enter) {
-        playerPlaySelected();
+        playerTogglePlay();
         return;
     }
     bool changed = false;
     for (char c : st.word) {
-        if ((c == 'j' || c == ',') && selIdx < (int)playlist.size() - 1) {
-            selIdx++;
-            changed = true;
-        } else if ((c == 'k' || c == ';') && selIdx > 0) {
-            selIdx--;
-            changed = true;
+        if (c == 'j' || c == ',') {
+            if (playerSelIdx < (int)playerEntries.size() - 1) { playerSelIdx++; changed = true; }
+        } else if (c == 'k' || c == ';') {
+            if (playerSelIdx > 0) { playerSelIdx--; changed = true; }
+        } else if (c == 'h') {
+            playerGoBack();
+            return;
+        } else if (c == 'l') {
+            playerGoForward();
+            return;
         }
     }
     if (changed) playerDrawUI();
@@ -304,19 +421,20 @@ static void playerHandleKeys(const Keyboard_Class::KeysState &st) {
 
 static void enterSoundboard() {
     stopAudio();
-    mode = SOUNDBOARD;
-    currentKey = 0;
-    playerPlaying = false;
+    mode         = SOUNDBOARD;
+    currentKey   = 0;
+    playerState  = PLAYER_STOPPED;
     soundboardDrawIdle();
 }
 
 static void enterMp3Player() {
     stopAudio();
-    mode = MP3_PLAYER;
-    currentKey = 0;
-    playerPlaying = false;
-    loadPlaylist();
-    if (selIdx >= (int)playlist.size()) selIdx = 0;
+    mode         = MP3_PLAYER;
+    currentKey   = 0;
+    playerState  = PLAYER_STOPPED;
+    playerPath   = MP3_DIR;
+    playerSelIdx = 0;
+    playerLoadDir(playerPath);
     playerDrawUI();
 }
 
@@ -384,13 +502,10 @@ void loop() {
         if (!gen->loop()) {
             spk->flush();
             gen->stop();
-            if (mode == MP3_PLAYER && !playlist.empty()) {
-                // Auto-advance to next track
-                selIdx = (selIdx + 1) % (int)playlist.size();
-                playerPlaying = false;
-                playerPlaySelected();
+            if (mode == MP3_PLAYER && playerState == PLAYER_PLAYING) {
+                playerAutoAdvance();
             } else {
-                playerPlaying = false;
+                playerState = PLAYER_STOPPED;
             }
         }
     }
