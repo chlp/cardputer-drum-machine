@@ -128,6 +128,7 @@ platformio.ini
 - **IDF4/IDF5**: `driver/i2s_std.h` is not available on IDF4 → I2S output files removed from ESP8266Audio
 - **Images**: `drawJpgFile(SD, path)` does not work (no `DataWrapperT<fs::SDFS>`). Workaround: read the file into heap with `malloc`, then `drawJpg(buf, len)`
 - **Audio**: runs on a dedicated FreeRTOS task pinned to core 0 (`audioTaskFn`), priority 2, guarded by a mutex. The main loop is never blocked by decoding. `startMp3` / `stopAudio` take the mutex, swap `gen`/`src`, and release. `audioEndedNaturally` flag is set by the task; handled in `loop()`.
+- **Audio output buffering**: `AudioOutputM5Speaker` MUST use **triple buffering**, not double. M5Unified's Speaker keeps a 2-slot queue per channel (current + next `wav_info_t`); a 2-buffer scheme overwrites the buffer the speaker is still draining via DMA → constant hiss. With 3 buffers, one is always free to fill while the other two are queued/playing. Output is **stereo** — feeding the speaker stereo pairs directly avoids redundant L/R averaging and matches what `AudioGeneratorMP3` produces (it copies mono→both channels itself before calling `ConsumeSample`).
 - **Polyphony**: M5.Speaker channel 0 is used by AudioOutputM5Speaker (MP3). Notes use channels 1–7
 - **`M5.Speaker.tone(freq, 0, ch, false)`**: duration=0 → infinite, stop_current=false → does not cut other channels
 - **Keyboard**: press and release both go through `isChange()` (not only `isPressed()`). MP3 Player only needs `isPressed()`
