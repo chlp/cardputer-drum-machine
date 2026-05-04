@@ -142,6 +142,8 @@ void loop() {
         }
     }
 
+    if (mode == SOUNDBOARD) soundboardLoop();
+
     if (M5Cardputer.Keyboard.isChange()) {
         Keyboard_Class::KeysState st = M5Cardputer.Keyboard.keysState();
 
@@ -171,7 +173,8 @@ void loop() {
         if (mode == SOUNDBOARD && boardSplashActive) {
             if (M5Cardputer.Keyboard.isPressed()) {
                 boardSplashActive = false;
-                soundboardRefresh();
+                soundboardRefresh();      // draw base UI first
+                soundboardHandleKeyChange(st); // then process the key normally
             }
             return;
         }

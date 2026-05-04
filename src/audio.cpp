@@ -52,19 +52,26 @@ void stopAudio() {
 }
 
 bool startMp3(const char *path) {
-    if (spk) spk->requestAbort(); // unblock any in-flight playRaw() before locking
+    // Step 1: abort current playback and tear down old objects under the mutex.
+    if (spk) spk->requestAbort();
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     if (gen) { gen->stop(); delete gen; gen = nullptr; }
     if (src) { delete src; src = nullptr; }
     if (spk) spk->stop(); // resets _abortRequested
     audioEndedNaturally = false;
+    xSemaphoreGive(s_mutex); // release before touching SD — open can take 50-200 ms
 
-    src = new AudioFileSourceSD(path);
-    if (!src->isOpen()) {
-        delete src; src = nullptr;
-        xSemaphoreGive(s_mutex);
+    // Step 2: open the file outside the mutex so the audio task can idle-loop
+    // and the main loop is not blocked any longer than necessary.
+    AudioFileSourceSD *newSrc = new AudioFileSourceSD(path);
+    if (!newSrc->isOpen()) {
+        delete newSrc;
         return false;
     }
+
+    // Step 3: hand the new source + decoder to the audio task.
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    src = newSrc;
     gen = new AudioGeneratorMP3();
     gen->begin(src, spk);
     xSemaphoreGive(s_mutex);

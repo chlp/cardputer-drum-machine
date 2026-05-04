@@ -25,4 +25,11 @@
 #define NOTE_CH_BASE 1
 #define NOTE_CH_CNT  7
 
+// Browse-mode responsiveness tuning
+// Show a fast colour tile instead of loading a JPEG from SD while navigating
+// rapidly with , / keys.  The full image loads once the user pauses.
+#define BROWSE_RAPID_NAV_MS      200  // ms since last nav before loading JPEG
+#define BROWSE_NAV_SETTLE_MS     150  // ms of quiet before loading image after , /
+#define BROWSE_PLAY_DEBOUNCE_MS   80  // ms of quiet before auto-playing a letter key
+
 enum AppMode { SOUNDBOARD, MP3_PLAYER };
