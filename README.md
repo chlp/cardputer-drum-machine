@@ -114,6 +114,24 @@ pio device monitor
 pio device monitor --port /dev/tty.usbmodem1101
 ```
 
+### Diagnostic logs
+
+The firmware emits structured diagnostic lines on the same USB serial port so you can debug crashes / reboots without extra hardware:
+
+```
+[123][BOOT] reset=PANIC code=3
+[124][BOOT] idf=v4.4.7-dirty arduino=2.0.17
+[125][BOOT] heap free=210432 min=210432 largest=110592 psram_free=0
+[2034][AUDIO] play path=/mp3/long.mp3 size=8421376
+[2035][AUDIO] heap free=204812 min=200800 largest=98304 psram_free=0
+[2036][AUDIO] task_stack_min_free=12288 bytes
+[2891][AUDIO] stop
+```
+
+- The first `[BOOT] reset=…` line tells you why the previous run terminated (`PANIC`, `TASK_WDT`, `BROWNOUT`, `POWERON`, `SW`, …) — the single most useful clue when chasing random reboots.
+- `task_stack_min_free` is the lowest free stack ever observed for the audio task. If it drops below ~2 KB while playing a particular MP3, bump the `xTaskCreatePinnedToCore` stack size in `src/audio.cpp`.
+- Lines all start with `[<millis>][<TAG>]`, which `tools/sd_xfer.py` already filters out, so the SD serial protocol keeps working with logging on.
+
 ---
 
 ## Soundboard — Default Sound Map

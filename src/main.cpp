@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "config.h"
 #include "audio.h"
+#include "log.h"
 #include "notes.h"
 #include "settings.h"
 #include "soundboard.h"
@@ -88,6 +89,8 @@ void setup() {
 
     drawBootScreen();
 
+    logBoot();
+
     M5.Speaker.begin();
 
     spk = new AudioOutputM5Speaker(&M5.Speaker, 0);
@@ -96,6 +99,7 @@ void setup() {
 
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
     sdReady = SD.begin(SD_CS, SPI, 10000000);
+    logLine("BOOT", "sd_ready=%d", (int)sdReady);
     scanSoundboardDirs();
 
     loadSettings();
