@@ -156,6 +156,11 @@ void loop() {
     if (volumeDisplayUntilMs && millis() >= volumeDisplayUntilMs) {
         volumeDisplayUntilMs = 0;
         if (mode == MP3_PLAYER) playerDrawUI();
+        // In browse mode the image fills the whole screen, so the volume
+        // overlay sits on top of pixels we want to keep — redraw the image
+        // instead of just blanking the status bar (which would leave a hole).
+        else if (mode == SOUNDBOARD && !boardSplashActive && useSoundboardBrowseUI())
+            soundboardRefresh();
         else clearStatusBar();
     }
 

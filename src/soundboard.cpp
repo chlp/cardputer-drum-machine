@@ -38,12 +38,12 @@ static bool tryDrawImageFromDir(const String &dir, char key) {
     snprintf(path, sizeof(path), "%s/%c.jpg", dir.c_str(), key);
     if (SD.exists(path)) {
         buf = readFileToBuffer(path, len);
-        if (buf) { M5Cardputer.Display.drawJpg(buf, len, 0, 0, SCREEN_W, IMG_H); free(buf); return true; }
+        if (buf) { M5Cardputer.Display.drawJpg(buf, len, 0, 0, SCREEN_W, SCREEN_H); free(buf); return true; }
     }
     snprintf(path, sizeof(path), "%s/%c.png", dir.c_str(), key);
     if (SD.exists(path)) {
         buf = readFileToBuffer(path, len);
-        if (buf) { M5Cardputer.Display.drawPng(buf, len, 0, 0, SCREEN_W, IMG_H); free(buf); return true; }
+        if (buf) { M5Cardputer.Display.drawPng(buf, len, 0, 0, SCREEN_W, SCREEN_H); free(buf); return true; }
     }
     return false;
 }
@@ -156,11 +156,11 @@ static void drawColorTileForKey(char key) {
     };
     int pidx = ((key >= 'a') ? key - 'a' : key - '0' + 26) % 12;
     uint16_t bg = pal[pidx];
-    d.fillRect(0, 0, SCREEN_W, IMG_H, bg);
+    d.fillRect(0, 0, SCREEN_W, SCREEN_H, bg);
     d.setTextSize(8);
     d.setTextColor(TFT_WHITE, bg);
     char lbl[2] = {(char)toupper(key), 0};
-    d.drawCenterString(lbl, SCREEN_W / 2, IMG_H / 2 - 30);
+    d.drawCenterString(lbl, SCREEN_W / 2, SCREEN_H / 2 - 30);
     d.setTextSize(1);
 }
 
@@ -174,10 +174,10 @@ static void drawSoundboardBrowse(char key) {
     auto &d = M5Cardputer.Display;
     d.fillScreen(TFT_BLACK);
     drawMemeKeyPreviewGraphic(key);
-    // Small key badge in the bottom-right corner of the image
+    // Small key badge in the bottom-right corner of the screen
     const int SZ = 22;
     const int bx = SCREEN_W - SZ;
-    const int by = IMG_H - SZ;
+    const int by = SCREEN_H - SZ;
     d.fillRect(bx, by, SZ, SZ, TFT_BLACK);
     d.drawRect(bx, by, SZ, SZ, TFT_CYAN);
     d.setTextSize(2);
@@ -185,7 +185,6 @@ static void drawSoundboardBrowse(char key) {
     char lbl[2] = {(char)toupper(key), 0};
     d.drawCenterString(lbl, bx + SZ / 2, by + 3);
     d.setTextSize(1);
-    clearStatusBar();
 }
 
 static void playSoundboardBrowseSelection() {
@@ -201,7 +200,6 @@ static void playSoundboardBrowseSelection() {
         sdSoundActive = false;
         drawMemeKeyPreviewGraphic(c);
         if (startMp3(path)) sdSoundActive = true;
-        clearStatusBar();
     } else {
         if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
         int ni = keyNoteIdx[(uint8_t)c];
@@ -405,7 +403,6 @@ void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
             M5Cardputer.Display.fillScreen(TFT_BLACK);
             drawMemeKeyPreviewGraphic(c);
             if (startMp3(audioPath)) sdSoundActive = true;
-            clearStatusBar();
         } else {
             if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
             noteOn(c);
