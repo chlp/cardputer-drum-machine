@@ -27,6 +27,7 @@ public:
     // Signal that a stop is imminent — flushBuffer() will skip playRaw() so the
     // audio task doesn't block while holding the mutex.
     void requestAbort() { _abortRequested = true; }
+    bool isAbortRequested() const { return _abortRequested; }
 
     bool ConsumeSample(int16_t sample[2]) override {
         if (_abortRequested) return true; // drain decoder without outputting audio

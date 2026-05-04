@@ -17,18 +17,30 @@ static void audioTaskFn(void *) {
     for (;;) {
         if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(5))) {
             if (gen && gen->isRunning()) {
-                if (!gen->loop()) {
-                    spk->flush();
-                    gen->stop();
-                    audioEndedNaturally = true;
+                // If the main task requested an abort, release the mutex
+                // immediately and yield so the main task can take it.
+                // Continuing to call gen->loop() would stall here because
+                // each SD read takes ~5-10 ms; the main task (lower priority)
+                // would starve indefinitely and trigger the watchdog.
+                if (spk && spk->isAbortRequested()) {
+                    xSemaphoreGive(s_mutex);
+                    vTaskDelay(pdMS_TO_TICKS(5));
+                } else {
+                    if (!gen->loop()) {
+                        spk->flush();
+                        gen->stop();
+                        audioEndedNaturally = true;
+                    }
+                    xSemaphoreGive(s_mutex);
+                    // No yield: keep pumping the decoder as fast as possible to
+                    // maintain the speaker double-buffer while audio is active.
                 }
-                xSemaphoreGive(s_mutex);
-                // No yield: keep pumping the decoder as fast as possible to
-                // maintain the speaker double-buffer while audio is active.
             } else {
                 xSemaphoreGive(s_mutex);
                 vTaskDelay(pdMS_TO_TICKS(10));
             }
+        } else {
+            vTaskDelay(1);
         }
     }
 }

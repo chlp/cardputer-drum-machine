@@ -193,10 +193,13 @@ void playerAutoAdvance() {
 
 void playerHandleKeys(const Keyboard_Class::KeysState &st) {
     if (isEscKey(st)) {
-        if (playerState == PLAYER_PLAYING || playerState == PLAYER_PAUSED)
-            playerShowCurrentFile();
-        else
+        if (playerState == PLAYER_PLAYING || playerState == PLAYER_PAUSED) {
+            stopAudio();
+            playerState = PLAYER_STOPPED;
+            playerDrawUI();
+        } else {
             playerGoBack();
+        }
         return;
     }
     if (st.enter) { playerTogglePlay(); return; }

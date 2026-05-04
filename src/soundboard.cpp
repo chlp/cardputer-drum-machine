@@ -212,7 +212,6 @@ static void playSoundboardBrowseSelection() {
     char c = sbCurKey;
     if (resolveMemeMp3ForKey(c, path, sizeof(path))) {
         stopAllNotes();
-        M5Cardputer.Display.fillScreen(TFT_BLACK);
         drawMemeKeyPreviewGraphic(c);
         startMp3(path);
         sdSoundActive = true;
@@ -421,15 +420,11 @@ void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
             bool wasHeld = false;
             for (char pc : prevSbKeys) if (pc == c) { wasHeld = true; break; }
             if (wasHeld) continue;
-            // New key pressed: update selection and schedule play after debounce.
-            // Don't start audio yet — rapid key presses just reschedule the timer,
-            // so only the last key in a burst actually triggers an SD open.
+            // New key pressed: play immediately.
             sbCurKey       = c;
-            sbLastNavMs    = millis();
             sbImagePending = false;
-            sbPlayPending  = true;
-            sbAfterMs      = sbLastNavMs + BROWSE_PLAY_DEBOUNCE_MS;
-            drawSoundboardBrowse(sbCurKey, /*rapidNav=*/true);
+            sbPlayPending  = false;
+            playSoundboardBrowseSelection();
         }
         prevSbKeys = curr;
         return;
