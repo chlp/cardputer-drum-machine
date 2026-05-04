@@ -40,20 +40,23 @@ void audioTaskInit() {
 }
 
 void stopAudio() {
-    // Wait at most one gen->loop() cycle (~11 ms at 44100 Hz / 512 samples).
+    // Tell the output to skip the next blocking playRaw() call so the audio task
+    // releases the mutex within microseconds rather than waiting a full DMA period.
+    if (spk) spk->requestAbort();
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     if (gen) { gen->stop(); delete gen; gen = nullptr; }
     if (src) { delete src; src = nullptr; }
-    if (spk) spk->stop();
+    if (spk) spk->stop(); // also resets _abortRequested
     audioEndedNaturally = false;
     xSemaphoreGive(s_mutex);
 }
 
 bool startMp3(const char *path) {
+    if (spk) spk->requestAbort(); // unblock any in-flight playRaw() before locking
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     if (gen) { gen->stop(); delete gen; gen = nullptr; }
     if (src) { delete src; src = nullptr; }
-    if (spk) spk->stop();
+    if (spk) spk->stop(); // resets _abortRequested
     audioEndedNaturally = false;
 
     src = new AudioFileSourceSD(path);
