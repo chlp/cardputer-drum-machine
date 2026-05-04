@@ -3,12 +3,24 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include <esp_idf_version.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <stdarg.h>
 #include <stdio.h>
 
+// Protect Serial output so two tasks (e.g. main loop + audio task) don't
+// interleave bytes in the middle of a line — that's what made the previous
+// IDF watchdog message read "gotdog me:" instead of "Task watchdog got
+// triggered. The following tasks did not reset the watchdog in time:".
+static SemaphoreHandle_t s_logMutex = nullptr;
+
+static void ensureLogMutex() {
+    if (s_logMutex == nullptr) s_logMutex = xSemaphoreCreateMutex();
+}
+
 void logLine(const char *tag, const char *fmt, ...) {
-    char   buf[192];
-    int    n = snprintf(buf, sizeof(buf), "[%lu][%s] ", (unsigned long)millis(), tag);
+    char buf[192];
+    int  n = snprintf(buf, sizeof(buf), "[%lu][%s] ", (unsigned long)millis(), tag);
     if (n < 0) return;
     if ((size_t)n >= sizeof(buf)) n = sizeof(buf) - 1;
 
@@ -17,7 +29,14 @@ void logLine(const char *tag, const char *fmt, ...) {
     int m = vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
     va_end(ap);
     (void)m; // truncation is fine — snprintf won't overflow
-    Serial.println(buf);
+
+    ensureLogMutex();
+    if (s_logMutex && xSemaphoreTake(s_logMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        Serial.println(buf);
+        xSemaphoreGive(s_logMutex);
+    } else {
+        Serial.println(buf); // best-effort fallback
+    }
 }
 
 static const char *resetReasonStr(esp_reset_reason_t r) {

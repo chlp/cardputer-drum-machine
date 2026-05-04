@@ -1,6 +1,7 @@
 #pragma once
 #include <AudioOutput.h>
 #include <M5Unified.h>
+#include <esp_task_wdt.h>
 
 // Bridges ESP8266Audio to M5Unified Speaker using triple-buffered stereo output.
 //
@@ -44,7 +45,14 @@ public:
     bool isAbortRequested() const { return _abortRequested; }
 
     bool ConsumeSample(int16_t sample[2]) override {
-        if (_abortRequested) return true; // drain decoder without outputting audio
+        // Abort path: return FALSE, not true.  AudioGeneratorMP3::loop()
+        // has an inner `do { ... } while (running && ConsumeSample(...));`
+        // — returning true keeps the decoder spinning forever, holding
+        // the audio mutex and starving the main task that is waiting in
+        // stopAudio() to switch tracks / mode.  Returning false makes
+        // gen->loop() exit immediately so the audio task can release
+        // the mutex and let stopAudio() proceed.
+        if (_abortRequested) return false;
 
         if (_pos + 1 < BUF_SLOTS) {
             _bufs[_idx][_pos++] = sample[0];
@@ -72,6 +80,17 @@ public:
 private:
     void flushBuffer() {
         if (_pos == 0 || _abortRequested) { _pos = 0; return; }
+        // Feed the IDF task watchdog before potentially blocking inside
+        // playRaw().  We are called from the audio task's call stack
+        // (gen->loop() → ConsumeSample() → flushBuffer()) so this has the
+        // same effect as resetting from audioTaskFn directly.  flushBuffer
+        // runs once per ~17 ms of decoded audio in steady state — that is
+        // far more frequent than the 15 s TWDT timeout, so the watchdog
+        // can no longer false-positive even if a single gen->loop() call
+        // sits inside playRaw waiting for the speaker queue to drain.
+        // The reset is a no-op (returns ESP_ERR_NOT_FOUND) when called
+        // from a task that is not subscribed, so it is safe everywhere.
+        esp_task_wdt_reset();
         // stop_current_sound = false → enqueue, do not interrupt the
         // currently playing buffer.  The call blocks (yielding the task)
         // until the speaker frees a queue slot.

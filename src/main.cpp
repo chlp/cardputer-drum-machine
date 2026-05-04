@@ -2,6 +2,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "config.h"
 #include "audio.h"
 #include "log.h"
@@ -78,11 +79,15 @@ static void drawBootScreen() {
 // ── Arduino Entry Points ──────────────────────────────────────────────────────
 
 void setup() {
-    esp_log_level_set("*", ESP_LOG_NONE);
+    // Allow IDF warnings/errors through (e.g. the "Task watchdog got triggered"
+    // diagnostic from task_wdt.c).  setDebugOutput routes IDF logs to the
+    // active Serial (USB CDC), so we actually see those messages.
     Serial.setRxBufferSize(16384);
     auto cfg = M5.config();
     cfg.serial_baudrate = 115200;
     M5Cardputer.begin(cfg, true);
+    Serial.setDebugOutput(true);
+    esp_log_level_set("*", ESP_LOG_WARN);
     M5Cardputer.Display.setRotation(1);
     M5Cardputer.Display.setBrightness(200);
     M5Cardputer.Display.setTextSize(1);
@@ -91,11 +96,33 @@ void setup() {
 
     logBoot();
 
+    // Bump the task watchdog timeout to 15 s and re-init with panic enabled.
+    // The 5 s default is the same value used by IDLE-task starvation checks;
+    // when we kept hitting it during long MP3 decodes we want extra headroom
+    // for transient hiccups (SD-card read stalls, libmad recovery loops on
+    // partially corrupt frames) before declaring the audio task hung.
+    {
+        esp_err_t initRc = esp_task_wdt_init(15, true);
+        logLine("BOOT", "task_wdt_init(15s, panic) rc=%d", (int)initRc);
+    }
+
     M5.Speaker.begin();
 
     spk = new AudioOutputM5Speaker(&M5.Speaker, 0);
     spk->SetGain(1.0f);
     audioTaskInit();
+
+    // The audio task lives on core 0 at priority 2 and intentionally hogs
+    // CPU while decoding — IDLE0 won't get to run.  Unsubscribe IDLE0 from
+    // the IDF task watchdog so it stops triggering false-positive resets
+    // (panic_abort in task_wdt_isr) on long MP3 playback.  The audio task
+    // itself is subscribed to TWDT inside audioTaskFn, so a real hang
+    // (e.g. libmad infinite loop on a corrupt frame) is still detected.
+    {
+        TaskHandle_t idle0  = xTaskGetIdleTaskHandleForCPU(0);
+        esp_err_t    delRc0 = idle0 ? esp_task_wdt_delete(idle0) : ESP_ERR_INVALID_ARG;
+        logLine("BOOT", "task_wdt_delete(IDLE0) rc=%d", (int)delRc0);
+    }
 
     SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
     sdReady = SD.begin(SD_CS, SPI, 10000000);
