@@ -48,7 +48,9 @@ static void audioTaskFn(void *) {
 void audioTaskInit() {
     s_mutex = xSemaphoreCreateMutex();
     // Priority 2 > Arduino loop priority (1), pinned to core 0.
-    xTaskCreatePinnedToCore(audioTaskFn, "audio", 8192, nullptr, 2, &s_audioTask, 0);
+    // libmad uses ~10-12 KB of stack for complex stereo frames; 16 KB gives
+    // enough headroom to avoid stack overflow → heap corruption.
+    xTaskCreatePinnedToCore(audioTaskFn, "audio", 16384, nullptr, 2, &s_audioTask, 0);
 }
 
 void stopAudio() {
@@ -75,16 +77,23 @@ bool startMp3(const char *path) {
 
     // Step 2: open the file outside the mutex so the audio task can idle-loop
     // and the main loop is not blocked any longer than necessary.
-    AudioFileSourceSD *newSrc = new AudioFileSourceSD(path);
+    AudioFileSourceSD *newSrc = new (std::nothrow) AudioFileSourceSD(path);
+    if (!newSrc) return false;
     if (!newSrc->isOpen()) {
         delete newSrc;
         return false;
     }
 
     // Step 3: hand the new source + decoder to the audio task.
+    AudioGeneratorMP3 *newGen = new (std::nothrow) AudioGeneratorMP3();
+    if (!newGen) {
+        delete newSrc;
+        return false;
+    }
+
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     src = newSrc;
-    gen = new AudioGeneratorMP3();
+    gen = newGen;
     gen->begin(src, spk);
     xSemaphoreGive(s_mutex);
     return true;
