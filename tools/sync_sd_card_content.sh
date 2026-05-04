@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 XFER="$SCRIPT_DIR/sd_xfer.py"
 SRC="$REPO_ROOT/sd_card_content"
+NORMALIZE="$SCRIPT_DIR/normalize_mp3.sh"
 
 DEFAULT_PORT="/dev/tty.usbmodem201101"
 DEFAULT_BAUD=115200
@@ -34,10 +35,14 @@ while getopts "p:b:h" opt; do
   esac
 done
 
-[[ -d "$SRC" ]]   || { echo "Missing source: $SRC" >&2; exit 1; }
-[[ -f "$XFER" ]]  || { echo "Missing tool: $XFER" >&2; exit 1; }
+[[ -d "$SRC" ]]        || { echo "Missing source: $SRC" >&2; exit 1; }
+[[ -f "$XFER" ]]       || { echo "Missing tool: $XFER" >&2; exit 1; }
+[[ -f "$NORMALIZE" ]]  || { echo "Missing tool: $NORMALIZE" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 not found" >&2; exit 1; }
 [[ -e "$PORT" ]]  || { echo "Serial port not found: $PORT" >&2; echo "Is the Cardputer connected?" >&2; exit 1; }
+
+bash "$NORMALIZE"
+echo
 
 echo "Port:    $PORT  (baud $BAUD)"
 echo "Source:  $SRC/"
