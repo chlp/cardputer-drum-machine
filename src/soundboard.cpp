@@ -22,17 +22,6 @@ static std::vector<char> prevSbKeys;
 static bool  prevNoteActive[256]  = {};
 static bool  pianoNeedsFullRedraw = true;
 
-// Browse-mode debounce state.
-// sbLastNavMs  — millis() of the last navigation / key-change event.
-//                drawSoundboardBrowse() shows a fast colour tile when the caller
-//                is too close to this timestamp (< BROWSE_RAPID_NAV_MS).
-// sbAfterMs    — millis() threshold after which the pending action fires.
-// sbImagePending — load full JPEG after , / navigation settles.
-// sbPlayPending  — auto-play + show image after letter-key debounce fires.
-static uint32_t sbLastNavMs   = 0;
-static uint32_t sbAfterMs     = 0;
-static bool     sbImagePending = false;
-static bool     sbPlayPending  = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -140,8 +129,6 @@ void sbInitBrowseSelection() {
 void sbResetInputState() {
     prevSbKeys.clear();
     sbPrevComma = sbPrevSlash = false;
-    sbPlayPending = sbImagePending = false;
-    sbLastNavMs = 0;
 }
 
 static void sbStepPlayable(int dir) {
@@ -183,16 +170,10 @@ static void drawMemeKeyPreviewGraphic(char key) {
     drawColorTileForKey(key);
 }
 
-// rapidNav=true  → colour tile only (no SD); used while navigating quickly.
-// rapidNav=false → full image from SD (may fall back to colour tile).
-static void drawSoundboardBrowse(char key, bool rapidNav = false) {
+static void drawSoundboardBrowse(char key) {
     auto &d = M5Cardputer.Display;
     d.fillScreen(TFT_BLACK);
-    if (rapidNav) {
-        drawColorTileForKey(key);
-    } else {
-        drawMemeKeyPreviewGraphic(key);
-    }
+    drawMemeKeyPreviewGraphic(key);
     // Small key badge in the bottom-right corner of the image
     const int SZ = 22;
     const int bx = SCREEN_W - SZ;
@@ -325,36 +306,17 @@ void soundboardRefresh() {
 
 void soundboardDrawIdle() {
     stopAllNotes();
-    sdSoundActive      = false;
-    sbPlayPending      = false;
-    sbImagePending     = false;
+    sdSoundActive = false;
     soundboardRefresh();
 }
 
-// Called every loop() iteration while in SOUNDBOARD mode.
-// Fires deferred image loads and auto-play after debounce timers expire.
-void soundboardLoop() {
-    if (!useSoundboardBrowseUI()) return;
-    uint32_t now = millis();
-    if (sbPlayPending && now >= sbAfterMs) {
-        sbPlayPending  = false;
-        sbImagePending = false;
-        sbLastNavMs    = 0; // force full-image path
-        playSoundboardBrowseSelection();
-    } else if (sbImagePending && now >= sbAfterMs) {
-        sbImagePending = false;
-        sbLastNavMs    = 0; // force full-image path
-        drawSoundboardBrowse(sbCurKey, /*rapidNav=*/false);
-    }
-}
+void soundboardLoop() {}
 
 void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
     if (isEscKey(st)) {
         stopAudio();
         stopAllNotes();
-        sdSoundActive      = false;
-        sbPlayPending      = false;
-        sbImagePending     = false;
+        sdSoundActive = false;
         prevSbKeys.clear();
         sbPrevComma = sbPrevSlash = false;
         soundboardRefresh();
@@ -371,31 +333,17 @@ void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
 
     if (browse) {
         if (comma && !sbPrevComma) {
-            if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
-            sbPlayPending = false;
             sbStepPlayable(-1);
-            sbLastNavMs    = millis();
-            sbImagePending = true;
-            sbAfterMs      = sbLastNavMs + BROWSE_NAV_SETTLE_MS;
-            drawSoundboardBrowse(sbCurKey, /*rapidNav=*/true);
+            playSoundboardBrowseSelection();
         }
         if (slash && !sbPrevSlash) {
-            if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
-            sbPlayPending = false;
             sbStepPlayable(1);
-            sbLastNavMs    = millis();
-            sbImagePending = true;
-            sbAfterMs      = sbLastNavMs + BROWSE_NAV_SETTLE_MS;
-            drawSoundboardBrowse(sbCurKey, /*rapidNav=*/true);
+            playSoundboardBrowseSelection();
         }
         sbPrevComma = comma;
         sbPrevSlash = slash;
 
         if (M5Cardputer.Keyboard.isPressed() && st.enter) {
-            // ENTER always plays immediately and cancels any pending debounce.
-            sbPlayPending  = false;
-            sbImagePending = false;
-            sbLastNavMs    = 0; // ensure full-image path in playSoundboardBrowseSelection
             playSoundboardBrowseSelection();
             std::vector<char> currEnter;
             for (char c : st.word) {
@@ -420,10 +368,7 @@ void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
             bool wasHeld = false;
             for (char pc : prevSbKeys) if (pc == c) { wasHeld = true; break; }
             if (wasHeld) continue;
-            // New key pressed: play immediately.
-            sbCurKey       = c;
-            sbImagePending = false;
-            sbPlayPending  = false;
+            sbCurKey = c;
             playSoundboardBrowseSelection();
         }
         prevSbKeys = curr;
