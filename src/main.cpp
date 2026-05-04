@@ -44,14 +44,15 @@ static void enterMp3Player() {
     stopAudio();
     stopAllNotes();
     boardSplashActive = false;
-    playerHintUntilMs = millis() + PLAYER_HINT_MS;
+    playerHintUntilMs = 0;
     mode          = MP3_PLAYER;
     sdSoundActive = false;
     playerState   = PLAYER_STOPPED;
     playerPath    = MP3_DIR;
     playerSelIdx  = 0;
     playerLoadDir(playerPath);
-    playerDrawUI();
+    playerSplashActive = true;
+    drawPlayerSplash();
 }
 
 // ── Boot Screen ───────────────────────────────────────────────────────────────
@@ -121,10 +122,6 @@ void loop() {
     M5Cardputer.update();
     sdSerialXferLoop();
 
-    if (mode == MP3_PLAYER && playerHintUntilMs && millis() >= playerHintUntilMs) {
-        playerHintUntilMs = 0;
-        playerDrawUI();
-    }
     if (volumeDisplayUntilMs && millis() >= volumeDisplayUntilMs) {
         volumeDisplayUntilMs = 0;
         if (mode == MP3_PLAYER) playerDrawUI();
@@ -175,6 +172,14 @@ void loop() {
             if (M5Cardputer.Keyboard.isPressed()) {
                 boardSplashActive = false;
                 soundboardRefresh();
+            }
+            return;
+        }
+
+        if (mode == MP3_PLAYER && playerSplashActive) {
+            if (M5Cardputer.Keyboard.isPressed()) {
+                playerSplashActive = false;
+                playerDrawUI();
             }
             return;
         }

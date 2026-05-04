@@ -9,6 +9,7 @@
 extern bool sdReady;
 
 uint32_t    playerHintUntilMs = 0;
+bool        playerSplashActive = false;
 String      playerPath        = MP3_DIR;
 String      playerFile        = "";
 int         playerSelIdx      = 0;
@@ -38,6 +39,17 @@ void playerLoadDir(const String &path) {
     std::sort(files.begin(), files.end());
     for (auto &d : dirs)  playerEntries.push_back({d, true});
     for (auto &f : files) playerEntries.push_back({f, false});
+}
+
+void drawPlayerSplash() {
+    auto &d = M5Cardputer.Display;
+    d.fillScreen(TFT_BLACK);
+    d.setTextSize(2);
+    d.setTextColor(TFT_WHITE, TFT_BLACK);
+    d.drawCenterString("MP3 PLAYER", SCREEN_W / 2, SCREEN_H / 2 - 16);
+    d.setTextSize(1);
+    d.setTextColor(0x7BEF, TFT_BLACK);
+    d.drawCenterString("TAB = next board   + - = vol", SCREEN_W / 2, SCREEN_H / 2 + 6);
 }
 
 void playerDrawUI() {
@@ -109,16 +121,7 @@ void playerDrawUI() {
         d.fillRect(SCREEN_W - 3, thumbY, 3, thumbH, TFT_WHITE);
     }
 
-    if (playerHintUntilMs && millis() < playerHintUntilMs) {
-        const char *l1 = playerState == PLAYER_PLAYING ? ";. nav  , up  / in  ENTER pause  ` here"
-                       : playerState == PLAYER_PAUSED  ? ";. nav  , up  / in  ENTER resume  ` here"
-                       :                                 ";. nav  , up  / in  ENTER play  ` up";
-        d.setTextColor(0x7BEF, TFT_BLACK);
-        d.drawString(l1, 2, STATUS_Y + 3);
-        d.drawString("TAB soundboard/piano", 2, STATUS_Y + 13);
-    } else {
-        clearStatusBar();
-    }
+    clearStatusBar();
 }
 
 static void playerGoForward() {

@@ -283,12 +283,10 @@ void drawBoardSplash() {
     String title = name + " BOARD";
     d.setTextSize(2);
     d.setTextColor(TFT_WHITE, TFT_BLACK);
-    d.drawCenterString(title, SCREEN_W / 2, SCREEN_H / 2 - 26);
+    d.drawCenterString(title, SCREEN_W / 2, SCREEN_H / 2 - 16);
     d.setTextSize(1);
     d.setTextColor(0x7BEF, TFT_BLACK);
-    d.drawCenterString("TAB = next board   + - = vol", SCREEN_W / 2, SCREEN_H / 2 + 4);
-    d.drawCenterString(", / = prev/next  a-z 0-9 = pick", SCREEN_W / 2, SCREEN_H / 2 + 16);
-    d.drawCenterString("OK = play   ` = clear/stop", SCREEN_W / 2, SCREEN_H / 2 + 28);
+    d.drawCenterString("TAB = next board   + - = vol", SCREEN_W / 2, SCREEN_H / 2 + 6);
 }
 
 void soundboardRefresh() {
