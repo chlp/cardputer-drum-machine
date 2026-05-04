@@ -3,7 +3,17 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
+// Pre-allocate the MP3 decoder's internal buffers as a static array so they
+// are never new/delete'd.  This eliminates heap fragmentation and the OOM
+// panics (abort() → reboot) that occur when switching between sounds while the
+// previous decoder still holds its allocations.
+static uint8_t           s_mp3Buf[AudioGeneratorMP3::preAllocSize()];
+static AudioGeneratorMP3 s_genObj(s_mp3Buf, sizeof(s_mp3Buf));
+static AudioFileSourceSD s_srcObj;
+
 AudioOutputM5Speaker *spk = nullptr;
+// gen / src are non-null only while a stream is active.
+// They point to the static objects above — never heap-allocated.
 AudioGeneratorMP3    *gen = nullptr;
 AudioFileSourceSD    *src = nullptr;
 volatile bool         audioEndedNaturally = false;
@@ -28,7 +38,10 @@ static void audioTaskFn(void *) {
                 } else {
                     if (!gen->loop()) {
                         spk->flush();
+                        // gen->stop() closes the SD file internally.
                         gen->stop();
+                        gen = nullptr;
+                        src = nullptr;
                         audioEndedNaturally = true;
                     }
                     xSemaphoreGive(s_mutex);
@@ -54,46 +67,38 @@ void audioTaskInit() {
 }
 
 void stopAudio() {
-    // Tell the output to skip the next blocking playRaw() call so the audio task
-    // releases the mutex within microseconds rather than waiting a full DMA period.
+    // Tell the output to skip the next blocking playRaw() call so the audio
+    // task releases the mutex quickly rather than waiting a full DMA period.
     if (spk) spk->requestAbort();
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    if (gen) { gen->stop(); delete gen; gen = nullptr; }
-    if (src) { delete src; src = nullptr; }
+    if (gen) { gen->stop(); gen = nullptr; }
+    // src->close() is safe even if the file was already closed by gen->stop().
+    if (src) { src->close(); src = nullptr; }
     if (spk) spk->stop(); // also resets _abortRequested
     audioEndedNaturally = false;
     xSemaphoreGive(s_mutex);
 }
 
 bool startMp3(const char *path) {
-    // Step 1: abort current playback and tear down old objects under the mutex.
+    // Step 1: abort current playback.  After this block the audio task is
+    // idle (gen == nullptr) and will not touch the SD bus.
     if (spk) spk->requestAbort();
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    if (gen) { gen->stop(); delete gen; gen = nullptr; }
-    if (src) { delete src; src = nullptr; }
+    if (gen) { gen->stop(); gen = nullptr; }
+    if (src) { src->close(); src = nullptr; }
     if (spk) spk->stop(); // resets _abortRequested
     audioEndedNaturally = false;
-    xSemaphoreGive(s_mutex); // release before touching SD — open can take 50-200 ms
+    xSemaphoreGive(s_mutex); // release before touching SD
 
-    // Step 2: open the file outside the mutex so the audio task can idle-loop
-    // and the main loop is not blocked any longer than necessary.
-    AudioFileSourceSD *newSrc = new (std::nothrow) AudioFileSourceSD(path);
-    if (!newSrc) return false;
-    if (!newSrc->isOpen()) {
-        delete newSrc;
-        return false;
-    }
+    // Step 2: open the file.  The audio task is idle so there is no concurrent
+    // SPI access — the caller must guarantee they have already stopped audio
+    // before loading any other SD data (images etc.) for the same reason.
+    if (!s_srcObj.open(path)) return false;
 
-    // Step 3: hand the new source + decoder to the audio task.
-    AudioGeneratorMP3 *newGen = new (std::nothrow) AudioGeneratorMP3();
-    if (!newGen) {
-        delete newSrc;
-        return false;
-    }
-
+    // Step 3: hand the static decoder + source to the audio task.
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    src = newSrc;
-    gen = newGen;
+    src = &s_srcObj;
+    gen = &s_genObj;
     gen->begin(src, spk);
     xSemaphoreGive(s_mutex);
     return true;

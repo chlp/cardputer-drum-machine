@@ -17,7 +17,10 @@
 // the mutex. stopAudio() / startMp3() call requestAbort() before taking the mutex.
 class AudioOutputM5Speaker : public AudioOutput {
 public:
-    static const size_t BUF_SAMPLES = 512;
+    // 1024 samples @ 44100 Hz ≈ 23 ms per chunk; doubles latency margin vs 512
+    // and reduces the chance of a buffer underrun when the main task briefly
+    // stalls the audio task (e.g. during display redraws).
+    static const size_t BUF_SAMPLES = 1024;
 
     AudioOutputM5Speaker(m5::Speaker_Class* spk, uint8_t ch = 0)
         : _spk(spk), _ch(ch), _pos(0), _flip(0), _abortRequested(false) {}

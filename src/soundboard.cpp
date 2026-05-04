@@ -193,9 +193,14 @@ static void playSoundboardBrowseSelection() {
     char c = sbCurKey;
     if (resolveMemeMp3ForKey(c, path, sizeof(path))) {
         stopAllNotes();
+        // Stop audio BEFORE any SD read: the audio task (core 0) reads the SD
+        // card via SPI while playing.  If the main task reads SD at the same
+        // time (to load the image below) there is a SPI bus race that causes
+        // crackling, data corruption, and ultimately a reboot.
+        stopAudio();
+        sdSoundActive = false;
         drawMemeKeyPreviewGraphic(c);
-        startMp3(path);
-        sdSoundActive = true;
+        if (startMp3(path)) sdSoundActive = true;
         clearStatusBar();
     } else {
         if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
@@ -394,10 +399,12 @@ void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
 
         if (haveMeme) {
             stopAllNotes();
+            // Same SPI-race fix: stop the audio task before SD image access.
+            stopAudio();
+            sdSoundActive = false;
             M5Cardputer.Display.fillScreen(TFT_BLACK);
             drawMemeKeyPreviewGraphic(c);
-            startMp3(audioPath);
-            sdSoundActive = true;
+            if (startMp3(audioPath)) sdSoundActive = true;
             clearStatusBar();
         } else {
             if (sdSoundActive) { stopAudio(); sdSoundActive = false; }
