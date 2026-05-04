@@ -21,6 +21,7 @@ void soundboardRefresh();
 void soundboardDrawIdle();
 void soundboardLoop();
 void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st);
+void sbDrawBrowseBadge(char key);
 
 void drawBoardSplash();
 void drawPiano();

@@ -170,11 +170,10 @@ static void drawMemeKeyPreviewGraphic(char key) {
     drawColorTileForKey(key);
 }
 
-static void drawSoundboardBrowse(char key) {
+// Small key badge in the bottom-right corner — drawn on top of the existing
+// image without touching the rest of the screen.
+void sbDrawBrowseBadge(char key) {
     auto &d = M5Cardputer.Display;
-    d.fillScreen(TFT_BLACK);
-    drawMemeKeyPreviewGraphic(key);
-    // Small key badge in the bottom-right corner of the screen
     const int SZ = 22;
     const int bx = SCREEN_W - SZ;
     const int by = SCREEN_H - SZ;
@@ -185,6 +184,13 @@ static void drawSoundboardBrowse(char key) {
     char lbl[2] = {(char)toupper(key), 0};
     d.drawCenterString(lbl, bx + SZ / 2, by + 3);
     d.setTextSize(1);
+}
+
+static void drawSoundboardBrowse(char key) {
+    auto &d = M5Cardputer.Display;
+    d.fillScreen(TFT_BLACK);
+    drawMemeKeyPreviewGraphic(key);
+    sbDrawBrowseBadge(key);
 }
 
 static void playSoundboardBrowseSelection() {

@@ -173,8 +173,12 @@ void loop() {
         } else {
             sdSoundActive = false;
             playerState = PLAYER_STOPPED;
+            // The image is already on screen from when playback started; only
+            // overlay the key badge to indicate playback finished. A full
+            // refresh would re-read the JPG from SD and repaint the whole
+            // screen for no visual benefit.
             if (mode == SOUNDBOARD && useSoundboardBrowseUI())
-                soundboardRefresh();
+                sbDrawBrowseBadge(sbCurKey);
         }
     }
 
