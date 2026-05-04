@@ -378,7 +378,9 @@ void soundboardHandleKeyChange(const Keyboard_Class::KeysState &st) {
         if (wasHeld) continue;
 
         char audioPath[64];
-        bool haveMeme = resolveMemeMp3ForKey(c, audioPath, sizeof(audioPath));
+        // In pure PIANO mode (no active board) always play tones, ignore meme/
+        bool haveMeme = (soundboardDir.length() > 0)
+                        && resolveMemeMp3ForKey(c, audioPath, sizeof(audioPath));
 
         if (haveMeme) {
             stopAllNotes();
