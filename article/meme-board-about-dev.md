@@ -4,9 +4,13 @@
 
 ![Cardputer ADV с MEME BOARD](meme-board.jpg)
 
+[![Демо на YouTube](https://img.youtube.com/vi/Ai2DBcBQq6E/maxresdefault.jpg)](https://youtu.be/Ai2DBcBQq6E)
+
 Это небольшая standalone embedded-консоль на базе M5Stack Cardputer ADV с экраном, клавиатурой, SD-картой и динамиком. Устройство запускает мемные звуки по нажатию клавиш и показывает картинки. В качестве бонуса — полифоническое пианино на клавиатуре и мини-MP3-плеер.
 
-Вот проект в GitHub [https://github.com/chlp/meme-board](https://github.com/chlp/meme-board) и в M5Burner (официальное приложение M5Stack для прошивки устройств).
+Вот проект в GitHub [https://github.com/chlp/meme-board](https://github.com/chlp/meme-board) и в M5Burner (официальное приложение M5Stack для прошивки устройств) — там его можно найти по названию **Meme Board**.
+
+![Meme Board в M5Burner](meme-board-m5burner.jpg)
 
 Пока делал этот проект, я ещё раз прочувствовал две важные вещи про AI-assisted разработку, в этот раз на примере embedded-устройства:
 

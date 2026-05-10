@@ -4,6 +4,8 @@ Firmware for [M5 Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer) that
 
 ![MEME BOARD - Cardputer ADV](meme-board-thumb.jpg)
 
+[![Watch the demo on YouTube](https://img.youtube.com/vi/Ai2DBcBQq6E/maxresdefault.jpg)](https://youtu.be/Ai2DBcBQq6E)
+
 ## Features
 
 ### Mode 1 — Soundboard
@@ -79,6 +81,16 @@ This deletes extra files on the card and uploads anything missing or changed. Se
 ---
 
 ## Building & Flashing
+
+### Pre-built firmware
+
+A ready-to-flash merged binary is included in the repo: [`release/cardputer-meme-board-merged.bin`](release/cardputer-meme-board-merged.bin). Flash it directly with `esptool.py` — no PlatformIO toolchain required:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/tty.usbmodem1101 --baud 460800 write_flash 0x0 release/cardputer-meme-board-merged.bin
+```
+
+The same binary is also published on M5Burner under the name **Meme Board**.
 
 ### Requirements
 - [PlatformIO](https://platformio.org/) (VS Code extension or CLI)
