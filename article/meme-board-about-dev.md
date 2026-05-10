@@ -2,7 +2,7 @@
 
 Я внезапно для себя сделал MEME BOARD. Вот он:
 
-![Cardputer ADV с MEME BOARD](cardputer-meme-board.jpeg)
+![Cardputer ADV с MEME BOARD](meme-board.jpg)
 
 Это небольшая standalone embedded-консоль на базе M5Stack Cardputer ADV с экраном, клавиатурой, SD-картой и динамиком. Устройство запускает мемные звуки по нажатию клавиш и показывает картинки. В качестве бонуса — полифоническое пианино на клавиатуре и мини-MP3-плеер.
 

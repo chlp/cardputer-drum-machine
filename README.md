@@ -2,6 +2,8 @@
 
 Firmware for [M5 Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer) that turns it into a portable meme soundboard with a built-in MP3 player.
 
+![MEME BOARD - Cardputer ADV](meme-board-thumb.jpg)
+
 ## Features
 
 ### Mode 1 — Soundboard
