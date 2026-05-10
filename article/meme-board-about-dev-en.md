@@ -1,6 +1,6 @@
 # How I built a MEME BOARD on ESP32-S3: an AI-assisted embedded development experience
 
-I unexpectedly built myself a MEME BOARD. Here it is:
+To my own surprise, I built a MEME BOARD. Here it is:
 
 ![Cardputer ADV with MEME BOARD](meme-board.jpg)
 
@@ -14,16 +14,16 @@ Here is the project on GitHub [https://github.com/chlp/meme-board](https://githu
 
 ![Meme Board in M5Burner](meme-board-m5burner.jpg)
 
-While working on this project, I once again felt two important things about AI-assisted development, this time on the example of an embedded device:
+While working on this project, I was once again reminded of two important things about AI-assisted development, this time on the example of an embedded device:
 
 1. AI writes code much better when it has a working reference of a real project for the specific hardware, not just documentation and an API.
-2. AI starts being truly useful when it can independently run the full cycle on its own: change the code → build → flash → run → read logs → analyze the result.
+2. AI starts being truly useful when it can run the full cycle on its own: change the code → build → flash → run → read logs → analyze the result.
 
 Without that, my embedded development is too slow even with AI's help.
 
 ---
 
-I had an idea — to build an internet radio, but not just a simple web app, with a hardware embodiment. The backend was, of course, the easiest part for me (since I'm a backend engineer). Claude handled the frontend pretty fast too — it writes JS code well, including custom players that send and receive audio over WebSocket. The radio worked across several browsers fairly quickly.
+I had an idea — to build an internet radio, but not just a simple web app, with actual hardware behind it. The backend was, of course, the easiest part for me (since I'm a backend engineer). Claude handled the frontend pretty fast too — it writes JS code well, including custom players that send and receive audio over WebSocket. The radio worked across several browsers fairly quickly.
 
 Then I moved on to the hardware. As a starting point I bought two devices to try at once — the M5Stack Cardputer ADV and the CoreS3 Lite.
 
@@ -61,26 +61,26 @@ A compact pocket computer with a full QWERTY keyboard, a large battery, and micr
 
 ---
 
-And here I realized that Claude Code handles hardware much worse than the web. Maybe I just got unlucky with this particular task on this particular device, but it was hard for AI to work with M5Stack. At first it was very hard for it to draw a normal working user interface for me, but the real difficulties came with audio playback. Constant wheezing, latency, residual echo.
+And here I realized that Claude Code handles hardware much worse than the web. Maybe I just got unlucky with this particular task on this particular device, but it was hard for AI to work with M5Stack. At first it was very hard for it to draw a normal working user interface for me, but the real difficulties came with audio playback. Constant crackling, latency, residual echo.
 
 I struggled like this for several days and realized I should start with a simpler task. Plus I wanted to play around with the second device. I came up with the idea of building a piano on the keyboard, then an MP3 player — and that gradually grew into a meme-board with sounds and images.
 
 While figuring it out, I went through firmware examples from other authors for M5Stack devices. I found several examples with great audio quality. I thought: if I find a working example and give it to Claude — it will figure out what's different from my implementation. I downloaded git repositories of several such third-party firmwares and asked Claude to figure out how they handle MP3 decoding, glitch-free audio playback, and CPU usage. Only after that did it identify the difference between what it was trying to do and what was done there. In the end, this one helped me — https://github.com/bomberman30/AdvanceOS-for-cardputer.
 
-It turned out the problem was not only with MP3 decoding itself, but with the organization of the entire audio pipeline. Working projects for the Cardputer used a more careful approach to I2S audio, buffering, and load distribution between tasks. On ESP32-S3 this turned out to be critical: incorrect organization of SD card reads and feeding data to audio led to wheezing, underruns, and hangs.
+It turned out the problem was not only with MP3 decoding itself, but with the organization of the entire audio pipeline. Working projects for the Cardputer used a more careful approach to I2S audio, buffering, and load distribution between tasks. On ESP32-S3 this turned out to be critical: incorrect organization of SD card reads and feeding data to audio led to crackling, underruns, and hangs.
 
 There turned out to be several specific solutions.
 
 First — **task architecture**: audio decoding is pinned to a separate core (core 0 of the two available at 240 MHz) with priority 2 and a 20 KB stack ([`audio.cpp`](https://github.com/chlp/meme-board/blob/main/src/audio.cpp)), while the UI runs on core 1 — they don't interfere with each other.
 
-Second — **triple buffering** instead of double: M5Unified keeps a queue of two slots (current + next), so with double buffering one of the buffers is being overwritten directly during playback through DMA — hence the characteristic constant wheezing. Three buffers solved the problem. Each buffer is 1536 int16 values, i.e. 768 stereo frames ≈ 17 ms at 44 100 Hz; the triple queue gives ~52 ms of headroom before the first underrun ([`AudioOutputM5Speaker.h`](https://github.com/chlp/meme-board/blob/main/src/AudioOutputM5Speaker.h)).
+Second — **triple buffering** instead of double: M5Unified keeps a queue of two slots (current + next), so with double buffering one of the buffers is being overwritten directly during playback through DMA — hence the characteristic constant crackling. Three buffers solved the problem. Each buffer is 1536 int16 values, i.e. 768 stereo frames ≈ 17 ms at 44 100 Hz; the triple queue gives ~52 ms of headroom before the first underrun ([`AudioOutputM5Speaker.h`](https://github.com/chlp/meme-board/blob/main/src/AudioOutputM5Speaker.h)).
 
 Third — **Watchdog**: by default, the ESP32 reboots after 5 seconds if the IDLE0 task starves — which is inevitable when the audio task takes up the whole core. I had to explicitly disable that WDT and subscribe the audio task to its own watchdog reset, so that an accidentally hung decoder would still be caught, but there would be no false positives.
 
 Once I applied the same approach, mine started working. There were another dozen iterations to make sure it didn't hang or reboot. I learned to write structured logs to the serial monitor ([`log.h`](https://github.com/chlp/meme-board/blob/main/src/log.h)), so that errors were traceable and provided information for debugging. To speed up iterations, I taught Claude to independently run almost the full embedded development loop:
 
 - build the firmware;
-- update the device;
+- flash the device;
 - read serial logs;
 - analyze errors;
 - perform actions on the device;
@@ -106,9 +106,9 @@ $ python3 tools/sd_xfer.py -p /dev/tty.usbmodem201101 put boom.mp3 /boards/meme/
   [██████████████████████████████] 100%  29.4 KB / 29.4 KB
 ```
 
-As a plus — future imaginary customers, when connected via USB, can use this function to service the device: upload music, images, sounds.
+As a plus — hypothetical future customers, when connected via USB, can use this function to service the device: upload music, images, sounds.
 
-Claude also helped me find free MP3 music for the repository, sounds and images for memes — and trim them. It also picked the parameters and format for audio: the SD card reader works through SPI, not SDIO, so read speed is limited. I had to find a compromise between file size, bitrate, and playback stability — too high a bitrate caused dropouts, because reading from microSD and decoding ran into the bus bandwidth. I combined the utilities for writing to the card and conversion into a single step ([`sync_sd_card_content.sh`](https://github.com/chlp/meme-board/blob/main/tools/sync_sd_card_content.sh) calls [`normalize_mp3.sh`](https://github.com/chlp/meme-board/blob/main/tools/normalize_mp3.sh) before syncing) — files are prepared and updated together with the firmware.
+Claude also helped me find free MP3 music for the repository, sounds and images for memes — and trim them. It also picked the parameters and format for audio: the SD card reader works through SPI, not SDIO, so read speed is limited. I had to find a compromise between file size, bitrate, and playback stability — too high a bitrate caused dropouts, because reading from microSD and decoding hit the bus bandwidth limit. I combined the utilities for writing to the card and conversion into a single step ([`sync_sd_card_content.sh`](https://github.com/chlp/meme-board/blob/main/tools/sync_sd_card_content.sh) calls [`normalize_mp3.sh`](https://github.com/chlp/meme-board/blob/main/tools/normalize_mp3.sh) before syncing) — files are prepared and updated together with the firmware.
 
 ---
 
@@ -118,6 +118,6 @@ AI does significantly speed up development — especially backend, frontend, and
 
 The most interesting thing is that AI did manage to help me reach a working result. But only after two things: when I gave it a good working example, and when it got the ability to independently run the cycle of testing and fixing. After that, it started to feel not like a code generator, but like a very fast junior embedded engineer who can run a huge number of iterations and quickly learns from working examples.
 
-Development has become much more accessible, even in areas where you're not deeply involved. The result comes faster than the weekend ends and the interest fades.
+Development has become much more accessible, even in areas where you don't have deep expertise. You get to a result before the weekend's over and the interest fades.
 
 I haven't dropped the internet radio with M5Stack CoreS3: while working on the Meme Board I figured out the quirks of the hardware and got working code on a smaller task, so now I feel ready to come back to the internet radio idea.
