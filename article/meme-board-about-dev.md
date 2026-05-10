@@ -4,7 +4,9 @@
 
 ![Cardputer ADV с MEME BOARD](meme-board.jpg)
 
-[![Демо на YouTube](https://img.youtube.com/vi/Ai2DBcBQq6E/maxresdefault.jpg)](https://youtu.be/Ai2DBcBQq6E)
+[![Демо на YouTube](meme-board-demo.webp)](https://youtu.be/Ai2DBcBQq6E)
+
+Видео-демо: <https://youtu.be/Ai2DBcBQq6E>
 
 Это небольшая standalone embedded-консоль на базе M5Stack Cardputer ADV с экраном, клавиатурой, SD-картой и динамиком. Устройство запускает мемные звуки по нажатию клавиш и показывает картинки. В качестве бонуса — полифоническое пианино на клавиатуре и мини-MP3-плеер.
 

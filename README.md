@@ -4,7 +4,9 @@ Firmware for [M5 Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer) that
 
 ![MEME BOARD - Cardputer ADV](meme-board-thumb.jpg)
 
-[![Watch the demo on YouTube](https://img.youtube.com/vi/Ai2DBcBQq6E/maxresdefault.jpg)](https://youtu.be/Ai2DBcBQq6E)
+[![Watch the demo on YouTube](meme-board-demo.webp)](https://youtu.be/Ai2DBcBQq6E)
+
+Demo video: <https://youtu.be/Ai2DBcBQq6E>
 
 ## Features
 
